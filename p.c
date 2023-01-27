@@ -32,7 +32,9 @@ int removestr();
 int removestr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr, int *size_ptr, char *direction_ptr);
 int size_input(int *size_ptr);
 int direction_input(char *direction_ptr);
-int removestr_action(char fileaddress[], int pos_line_ptr, int pos_char_ptr, int size_ptr, char direction_ptr);
+int removestr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction);
+int removestr_f(char fileaddress[], int pos_line, int pos_char, int size);
+int removestr_b(char fileaddress[], int pos_line, int pos_char, int size);
 
 int main()
 {
@@ -127,8 +129,6 @@ int file_input(char fileaddress[], int caller_code)
             error_msg("enter createfile --file <file path> to make a file");
         else if (caller_code == CAT_CODE)
             error_msg("enter cat --file <file path> to view the contents of a file");
-        else if (caller_code == INSERTSTR_CODE)
-            error_msg("enter insertstr --file <file name> --str <str> --pos <line no>:<start position> to insert text");
         return -1;
     }
 
@@ -175,7 +175,12 @@ int file_input(char fileaddress[], int caller_code)
 
 int createfile_action(char fileaddress[])
 {
-    FILE *f = fopen(fileaddress, "r");
+    FILE *f;
+
+    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
+        f = fopen(fileaddress + 1, "r");
+    else
+        f = fopen(fileaddress, "r");
 
     // check if the file already exists
     if (f != NULL)
@@ -190,7 +195,12 @@ int createfile_action(char fileaddress[])
     if (validpath == -1)
         return -1;
 
-    f = fopen(fileaddress, "w");
+    char *address_ptr;
+    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
+        address_ptr = fileaddress + 1;
+    else
+        address_ptr = fileaddress;
+    f = fopen(address_ptr, "w");
     fclose(f);
 
     return 0;
@@ -236,14 +246,21 @@ int makepath(char fileaddress[])
     // create directory
     // PROBLEM: if a folder name in the middle is not invalid the previous folders are made
     // EXAMPLE: createfile --file "f1/f*2/t.txt" -> f1 is made and the error is shown afterwards
-    for (int i = 0; addresscopy[i] != 0; i++)
+
+    // file address has a / or \\ at the beginning
+    char *address_ptr;
+    if (addresscopy[0] == '/' || addresscopy[0] == '\\')
+        address_ptr = addresscopy + 1;
+    else
+        address_ptr = addresscopy;
+    for (int i = 0; address_ptr[i] != 0; i++)
     {
-        if (addresscopy[i] == '/' || addresscopy[i] == '\\')
+        if (address_ptr[i] == '/' || address_ptr[i] == '\\')
         {
-            addresscopy[i] = 0;
+            address_ptr[i] = 0;
             // didn't handle invalid folder names and folders that have the same name as a file
-            _mkdir(addresscopy);
-            addresscopy[i] = '/';
+            _mkdir(address_ptr);
+            address_ptr[i] = '/';
         }
     }
 
@@ -543,6 +560,8 @@ int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
     fclose(original_file);
     fclose(temp_file);
     remove("tempfile");
+
+    return 0;
 }
 
 int removestr()
@@ -587,7 +606,7 @@ int size_input(int *size_ptr)
 {
     char word[1000];
 
-    // --size
+    // -size
     scanf("%s", word);
 
     scanf("%d", size_ptr);
@@ -613,6 +632,105 @@ int direction_input(char *direction_ptr)
     return -1;
 }
 
-int removestr_action(char fileaddress[], int pos_line_ptr, int pos_char_ptr, int size_ptr, char direction_ptr)
+int removestr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction)
 {
+    if (direction == 'f')
+        return removestr_f(fileaddress, pos_line, pos_char, size);
+    else
+        return removestr_b(fileaddress, pos_line, pos_char, size);
+}
+
+int removestr_f(char fileaddress[], int pos_line, int pos_char, int size)
+{
+    FILE *original_file = fopen(fileaddress, "r");
+    FILE *temp_file = fopen("tempfile", "w");
+
+    char line[2000];
+    line[0] = 0;
+    int cur_line = 0;
+    while (cur_line < pos_line)
+    {
+        if (fgets(line, 2000, original_file) == NULL)
+        {
+            error_msg("the file doesn't have this many lines");
+            fclose(original_file);
+            fclose(temp_file);
+            remove("tempfile");
+            return -1;
+        }
+
+        fprintf(temp_file, line);
+
+        // if reached end of a line (since lines can be longer than 2000 characters)
+        if (line[strlen(line) - 1] == 10)
+            cur_line++;
+    }
+
+    int count = 0;
+    while (count < pos_char)
+    {
+        fputc(fgetc(original_file), temp_file);
+        count++;
+    }
+    for (int i = 0; i < size; i++)
+        fgetc(original_file);
+
+    // add the rest of original_file to temp_file
+    while (fgets(line, 2000, original_file) != NULL)
+    {
+        fprintf(temp_file, line);
+    }
+    fclose(original_file);
+    fclose(temp_file);
+
+    // copy temp_file's contents to original_file
+    original_file = fopen(fileaddress, "w");
+    temp_file = fopen("tempfile", "r");
+    while (fgets(line, 2000, temp_file) != NULL)
+    {
+        fprintf(original_file, line);
+    }
+
+    fclose(original_file);
+    fclose(temp_file);
+    remove("tempfile");
+    return 0;
+}
+
+int removestr_b(char fileaddress[], int pos_line, int pos_char, int size)
+{
+    FILE *original_file = fopen(fileaddress, "r");
+
+    if(pos_line==0)
+    {
+        fclose(original_file);
+        return removestr_f(fileaddress, pos_line, pos_char-size, size);
+    }
+    int char_count[pos_line];
+    for (int i = 0; i < pos_line; i++)
+        char_count[i] = 0;
+
+    char line[2000];
+    int i = 0;
+    while (i < pos_line)
+    {
+        fgets(line, 2000, original_file);
+        char_count[i] += strlen(line);
+        if (line[strlen(line) - 1] == '\n')
+            i++;
+    }
+
+    long long sum = 0;
+    int j;
+    for (j = pos_line - 1; j >= 0; j--)
+    {
+        if (sum + char_count[j] >= size - pos_char)
+            break;
+        sum += char_count[j];
+    }
+
+    int pos_start = char_count[j] - (size - pos_char - sum);
+    fclose(original_file);
+
+    return removestr_f(fileaddress, j, pos_start, size);
 }
