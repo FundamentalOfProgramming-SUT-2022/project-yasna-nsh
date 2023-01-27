@@ -328,43 +328,36 @@ int file_input_by_word(char fileaddress[])
     // NO CHECK FOR CORRECT INPUT FORMAT YET
     char word[1000];
 
-    // the first word is --file
-    scanf("%s", word);
+    // first word is --file
+    scanf("%s ", word);
 
-    // get the next first word which is a part of the file address
-    scanf("%s", word);
-    // does the file path contain ""
-    int dq = 0;
-    if (word[0] == '\"')
+    char c;
+    c = getchar();
+
+    if (c != '\"')
     {
-        dq = 1;
-
-        // delete the opening " from file path (by shifting the file address to the left)
-        for (int i = 1; i < strlen(word); i++)
+        fileaddress[0] = c;
+        scanf("%s", fileaddress + 1);
+    }
+    else
+    {
+        int i = 0;
+        while (1)
         {
-            word[i - 1] = word[i];
+            c = getchar();
+            if (c == '\"' && fileaddress[i - 1] != '\\')
+                break;
+            fileaddress[i] = c;
+            i++;
         }
-        word[strlen(word) - 1] = 0;
+        fileaddress[i] = 0;
     }
-
-    // input file path
-    int first = 1;
-    while (strcmp(word, "--str") && strcmp(word, "--pos"))
-    {
-        if (!first)
-            strcat(fileaddress, " ");
-        else
-            first = 0;
-        strcat(fileaddress, word);
-        scanf("%s", word);
-    }
-    if (dq)
-        fileaddress[strlen(fileaddress) - 1] = 0;
 
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
     {
         error_msg("this file doesn't exist");
+        clearline();
         return -1;
     }
     else
@@ -377,33 +370,36 @@ int file_input_by_word(char fileaddress[])
 
 int str_input(char str[])
 {
+    // MORE THAN ONE SPACE IN A ROW
+
     // get string
     char word[1000];
     int dq = 0;
-    scanf("%s", word);
-    if (word[0] == '\"')
-    {
-        dq = 1;
 
-        // delete the opening " from file path (by shifting the file address to the left)
-        for (int i = 1; i < strlen(word); i++)
-        {
-            word[i - 1] = word[i];
-        }
-        word[strlen(word) - 1] = 0;
-    }
-    int first = 1;
-    while (strcmp(word, "--pos"))
+    // first word is --str
+    scanf("%s ", word);
+
+    char c;
+    c = getchar();
+
+    if (c != '\"')
     {
-        if (!first)
-            strcat(str, " ");
-        else
-            first = 0;
-        strcat(str, word);
-        scanf("%s", word);
+        str[0] = c;
+        scanf("%s", str + 1);
     }
-    if (dq)
-        str[strlen(str) - 1] = 0;
+    else
+    {
+        int i = 0;
+        while (1)
+        {
+            c = getchar();
+            if (c == '\"' && str[i - 1] != '\\')
+                break;
+            str[i] = c;
+            i++;
+        }
+        str[i] = 0;
+    }
 
     return 0;
 }
@@ -411,6 +407,10 @@ int str_input(char str[])
 int pos_input(int *pos_line_ptr, int *pos_char_ptr)
 {
     *pos_line_ptr = *pos_char_ptr = -1;
+
+    // first word is --pos
+    char word[100];
+    scanf("%s", word);
 
     if (scanf("%d:%d", pos_line_ptr, pos_char_ptr) != 2)
     {
@@ -420,11 +420,13 @@ int pos_input(int *pos_line_ptr, int *pos_char_ptr)
     if (*pos_line_ptr <= 0)
     {
         error_msg("the line number can't be zero or negative");
+        clearline();
         return -1;
     }
     if (*pos_char_ptr < 0)
     {
         error_msg("the start position can't be negative");
+        clearline();
         return -1;
     }
 
@@ -613,5 +615,4 @@ int direction_input(char *direction_ptr)
 
 int removestr_action(char fileaddress[], int pos_line_ptr, int pos_char_ptr, int size_ptr, char direction_ptr)
 {
-    
 }
