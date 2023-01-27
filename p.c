@@ -3,6 +3,8 @@
 #include <string.h>
 #include <direct.h>
 
+#define TEMP_FILE_NAME ".tempfile"
+#define CLIPBOARD_FILE_NAME ".clipboard"
 #define STR_MAX_LENGTH 4000
 #define CREATEFILE_CODE 0
 #define INSERTSTR_CODE 1
@@ -196,6 +198,16 @@ int file_input(char fileaddress[], int caller_code)
         }
         fileaddress[strlen(fileaddress) - 1] = 0;
     }
+
+    // remove the starting \ or /
+    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
+    {
+        for (int i = 1; i < strlen(fileaddress); i++)
+        {
+            fileaddress[i - 1] = fileaddress[i];
+        }
+        fileaddress[strlen(fileaddress) - 1] = 0;
+    }
     return 0;
 }
 
@@ -221,12 +233,7 @@ int createfile_action(char fileaddress[])
     if (validpath == -1)
         return -1;
 
-    char *address_ptr;
-    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
-        address_ptr = fileaddress + 1;
-    else
-        address_ptr = fileaddress;
-    f = fopen(address_ptr, "w");
+    f = fopen(fileaddress, "w");
     fclose(f);
 
     return 0;
@@ -274,19 +281,15 @@ int makepath(char fileaddress[])
     // EXAMPLE: createfile --file "f1/f*2/t.txt" -> f1 is made and the error is shown afterwards
 
     // file address has a / or \\ at the beginning
-    char *address_ptr;
-    if (addresscopy[0] == '/' || addresscopy[0] == '\\')
-        address_ptr = addresscopy + 1;
-    else
-        address_ptr = addresscopy;
-    for (int i = 0; address_ptr[i] != 0; i++)
+
+    for (int i = 0; addresscopy[i] != 0; i++)
     {
-        if (address_ptr[i] == '/' || address_ptr[i] == '\\')
+        if (addresscopy[i] == '/' || addresscopy[i] == '\\')
         {
-            address_ptr[i] = 0;
+            addresscopy[i] = 0;
             // didn't handle invalid folder names and folders that have the same name as a file
-            _mkdir(address_ptr);
-            address_ptr[i] = '/';
+            _mkdir(addresscopy);
+            addresscopy[i] = '/';
         }
     }
 
@@ -396,6 +399,16 @@ int file_input_by_word(char fileaddress[])
         fileaddress[i] = 0;
     }
 
+    // remove the starting \ or /
+    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
+    {
+        for (int i = 1; i < strlen(fileaddress); i++)
+        {
+            fileaddress[i - 1] = fileaddress[i];
+        }
+        fileaddress[strlen(fileaddress) - 1] = 0;
+    }
+
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
     {
@@ -482,7 +495,7 @@ int pos_input(int *pos_line_ptr, int *pos_char_ptr)
 int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
 {
     FILE *original_file = fopen(fileaddress, "r");
-    FILE *temp_file = fopen("tempfile", "w");
+    FILE *temp_file = fopen(TEMP_FILE_NAME, "w");
 
     char line[2000];
     line[0] = 0;
@@ -494,7 +507,7 @@ int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
             error_msg("the file doesn't have this many lines");
             fclose(original_file);
             fclose(temp_file);
-            remove("tempfile");
+            remove(TEMP_FILE_NAME);
             return -1;
         }
 
@@ -511,7 +524,7 @@ int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
         error_msg("the file doesn't have this many lines");
         fclose(original_file);
         fclose(temp_file);
-        remove("tempfile");
+        remove(TEMP_FILE_NAME);
         return -1;
     }
 
@@ -521,7 +534,7 @@ int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
         printf("line %d of the file doesn't have this many characters\n", pos_line + 1);
         fclose(original_file);
         fclose(temp_file);
-        remove("tempfile");
+        remove(TEMP_FILE_NAME);
         return -1;
     }
 
@@ -577,7 +590,7 @@ int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
 
     // copy temp_file's contents to original_file
     original_file = fopen(fileaddress, "w");
-    temp_file = fopen("tempfile", "r");
+    temp_file = fopen(TEMP_FILE_NAME, "r");
     while (fgets(line, 2000, temp_file) != NULL)
     {
         fprintf(original_file, line);
@@ -585,7 +598,7 @@ int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
 
     fclose(original_file);
     fclose(temp_file);
-    remove("tempfile");
+    remove(TEMP_FILE_NAME);
 
     return 0;
 }
@@ -669,7 +682,7 @@ int removestr_action(char fileaddress[], int pos_line, int pos_char, int size, c
 int removestr_f(char fileaddress[], int pos_line, int pos_char, int size)
 {
     FILE *original_file = fopen(fileaddress, "r");
-    FILE *temp_file = fopen("tempfile", "w");
+    FILE *temp_file = fopen(TEMP_FILE_NAME, "w");
 
     char line[2000];
     line[0] = 0;
@@ -681,7 +694,7 @@ int removestr_f(char fileaddress[], int pos_line, int pos_char, int size)
             error_msg("the file doesn't have this many lines");
             fclose(original_file);
             fclose(temp_file);
-            remove("tempfile");
+            remove(TEMP_FILE_NAME);
             return -1;
         }
 
@@ -711,7 +724,7 @@ int removestr_f(char fileaddress[], int pos_line, int pos_char, int size)
 
     // copy temp_file's contents to original_file
     original_file = fopen(fileaddress, "w");
-    temp_file = fopen("tempfile", "r");
+    temp_file = fopen(TEMP_FILE_NAME, "r");
     while (fgets(line, 2000, temp_file) != NULL)
     {
         fprintf(original_file, line);
@@ -719,7 +732,7 @@ int removestr_f(char fileaddress[], int pos_line, int pos_char, int size)
 
     fclose(original_file);
     fclose(temp_file);
-    remove("tempfile");
+    remove(TEMP_FILE_NAME);
     return 0;
 }
 
@@ -794,7 +807,7 @@ int copystr_action(char fileaddress[], int pos_line, int pos_char, int size, cha
 int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
 {
     FILE *original_file = fopen(fileaddress, "r");
-    FILE *clipboard = fopen("clipboard", "w");
+    FILE *clipboard = fopen(CLIPBOARD_FILE_NAME, "w");
 
     char line[2000];
     line[0] = 0;
@@ -806,7 +819,7 @@ int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
             error_msg("the file doesn't have this many lines");
             fclose(original_file);
             fclose(clipboard);
-            remove("clipboard");
+            remove(CLIPBOARD_FILE_NAME);
             return -1;
         }
 
@@ -930,7 +943,7 @@ int pastestr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr)
 
 int pastestr_action(char fileaddress[], int pos_line, int pos_char)
 {
-    FILE *clipboard = fopen("clipboard", "r");
+    FILE *clipboard = fopen(CLIPBOARD_FILE_NAME, "r");
     if (clipboard == NULL)
     {
         error_msg("clipboard is empty");
@@ -958,7 +971,7 @@ int pastestr_action(char fileaddress[], int pos_line, int pos_char)
             pos_char += strlen(line);
         }
     }
-    
+
     fclose(clipboard);
     return 0;
 }
