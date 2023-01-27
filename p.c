@@ -36,6 +36,20 @@ int removestr_action(char fileaddress[], int pos_line, int pos_char, int size, c
 int removestr_f(char fileaddress[], int pos_line, int pos_char, int size);
 int removestr_b(char fileaddress[], int pos_line, int pos_char, int size);
 
+int copystr();
+int copystr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr, int *size_ptr, char *direction_ptr);
+int copystr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction);
+int copystr_f(char fileaddress[], int pos_line, int pos_char, int size);
+int copystr_b(char fileaddress[], int pos_line, int pos_char, int size);
+
+int cutstr();
+int cutstr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr, int *size_ptr, char *direction_ptr);
+int cutstr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction);
+
+int pastestr();
+int pastestr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr);
+int pastestr_action(char fileaddress[], int pos_line, int pos_char);
+
 int main()
 {
     char command[1000];
@@ -59,6 +73,18 @@ int main()
         else if (!strcmp(command, "removestr"))
         {
             removestr();
+        }
+        else if (!strcmp(command, "copystr"))
+        {
+            copystr();
+        }
+        else if (!strcmp(command, "cutstr"))
+        {
+            cutstr();
+        }
+        else if (!strcmp(command, "pastestr"))
+        {
+            pastestr();
         }
         else if (!strcmp(command, "exit"))
         {
@@ -701,10 +727,10 @@ int removestr_b(char fileaddress[], int pos_line, int pos_char, int size)
 {
     FILE *original_file = fopen(fileaddress, "r");
 
-    if(pos_line==0)
+    if (pos_line == 0)
     {
         fclose(original_file);
-        return removestr_f(fileaddress, pos_line, pos_char-size, size);
+        return removestr_f(fileaddress, pos_line, pos_char - size, size);
     }
     int char_count[pos_line];
     for (int i = 0; i < pos_line; i++)
@@ -733,4 +759,206 @@ int removestr_b(char fileaddress[], int pos_line, int pos_char, int size)
     fclose(original_file);
 
     return removestr_f(fileaddress, j, pos_start, size);
+}
+
+int copystr()
+{
+    char fileaddress[1000];
+    int pos_line, pos_char, size;
+    char direction;
+
+    int valid_input = copystr_input(fileaddress, &pos_line, &pos_char, &size, &direction);
+    if (valid_input == -1)
+        return -1;
+
+    int valid_action = copystr_action(fileaddress, pos_line, pos_char, size, direction);
+    if (valid_action == -1)
+        return -1;
+
+    return 0;
+}
+
+int copystr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr, int *size_ptr, char *direction_ptr)
+{
+    return removestr_input(fileaddress, pos_line_ptr, pos_char_ptr, size_ptr, direction_ptr);
+}
+
+int copystr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction)
+{
+    if (direction == 'f')
+        return copystr_f(fileaddress, pos_line, pos_char, size);
+    else
+        return copystr_b(fileaddress, pos_line, pos_char, size);
+}
+
+int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
+{
+    FILE *original_file = fopen(fileaddress, "r");
+    FILE *clipboard = fopen("clipboard", "w");
+
+    char line[2000];
+    line[0] = 0;
+    int cur_line = 0;
+    while (cur_line < pos_line)
+    {
+        if (fgets(line, 2000, original_file) == NULL)
+        {
+            error_msg("the file doesn't have this many lines");
+            fclose(original_file);
+            fclose(clipboard);
+            remove("clipboard");
+            return -1;
+        }
+
+        // if reached end of a line (since lines can be longer than 2000 characters)
+        if (line[strlen(line) - 1] == 10)
+            cur_line++;
+    }
+
+    int count = 0;
+    while (count < pos_char)
+    {
+        fgetc(original_file);
+        count++;
+    }
+    for (int i = 0; i < size; i++)
+        fputc(fgetc(original_file), clipboard);
+
+    fclose(original_file);
+    fclose(clipboard);
+    return 0;
+}
+
+int copystr_b(char fileaddress[], int pos_line, int pos_char, int size)
+{
+    FILE *original_file = fopen(fileaddress, "r");
+
+    if (pos_line == 0)
+    {
+        fclose(original_file);
+        return copystr_f(fileaddress, pos_line, pos_char - size, size);
+    }
+
+    int char_count[pos_line];
+    for (int i = 0; i < pos_line; i++)
+        char_count[i] = 0;
+
+    char line[2000];
+    int i = 0;
+    while (i < pos_line)
+    {
+        fgets(line, 2000, original_file);
+        char_count[i] += strlen(line);
+        if (line[strlen(line) - 1] == '\n')
+            i++;
+    }
+
+    long long sum = 0;
+    int j;
+    for (j = pos_line - 1; j >= 0; j--)
+    {
+        if (sum + char_count[j] >= size - pos_char)
+            break;
+        sum += char_count[j];
+    }
+
+    int pos_start = char_count[j] - (size - pos_char - sum);
+    fclose(original_file);
+
+    return copystr_f(fileaddress, j, pos_start, size);
+}
+
+int cutstr()
+{
+    char fileaddress[1000];
+    int pos_line, pos_char, size;
+    char direction;
+
+    int valid_input = cutstr_input(fileaddress, &pos_line, &pos_char, &size, &direction);
+    if (valid_input == -1)
+        return -1;
+
+    int valid_action = cutstr_action(fileaddress, pos_line, pos_char, size, direction);
+    if (valid_action == -1)
+        return -1;
+
+    return 0;
+}
+
+int cutstr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr, int *size_ptr, char *direction_ptr)
+{
+    return removestr_input(fileaddress, pos_line_ptr, pos_char_ptr, size_ptr, direction_ptr);
+}
+
+int cutstr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction)
+{
+    if (copystr_action(fileaddress, pos_line, pos_char, size, direction) == -1)
+        return -1;
+    else
+        return removestr_action(fileaddress, pos_line, pos_char, size, direction);
+}
+
+int pastestr()
+{
+    char fileaddress[1000];
+    int pos_line, pos_char, size;
+    char direction;
+
+    int valid_input = pastestr_input(fileaddress, &pos_line, &pos_char);
+    if (valid_input == -1)
+        return -1;
+
+    int valid_action = pastestr_action(fileaddress, pos_line, pos_char);
+    if (valid_action == -1)
+        return -1;
+
+    return 0;
+}
+
+int pastestr_input(char fileaddress[], int *pos_line_ptr, int *pos_char_ptr)
+{
+    int valid_file = file_input_by_word(fileaddress);
+    if (valid_file == -1)
+        return -1;
+
+    int valid_pos = pos_input(pos_line_ptr, pos_char_ptr);
+    if (valid_pos == -1)
+        return -1;
+
+    return 0;
+}
+
+int pastestr_action(char fileaddress[], int pos_line, int pos_char)
+{
+    FILE *clipboard = fopen("clipboard", "r");
+    if (clipboard == NULL)
+    {
+        error_msg("clipboard is empty");
+        return -1;
+    }
+
+    char line[2000];
+    while (1)
+    {
+        if (fgets(line, 2000, clipboard) == NULL)
+            break;
+        if (insertstr_action(fileaddress, line, pos_line, pos_char) == -1)
+        {
+            error_msg("unknown error");
+            fclose(clipboard);
+            return -1;
+        }
+        if (line[strlen(line) - 1] == '\n')
+        {
+            pos_line++;
+            pos_char = 0;
+        }
+        else
+        {
+            pos_char += strlen(line);
+        }
+    }
+    
+    fclose(clipboard);
+    return 0;
 }
