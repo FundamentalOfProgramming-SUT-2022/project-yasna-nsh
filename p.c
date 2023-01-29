@@ -62,7 +62,7 @@ int pastestr_action(char fileaddress[], int pos_line, int pos_char);
 int find();
 int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr);
 int find_action_vanilla(char str[], char fileaddress[], int at);
-int find_action_next(char line[], char str[], int from, int *end_index_ptr);
+int find_action_next(char line[], char str[], int from, int *end_index_ptr, int star_start);
 int find_action_count(char str[], char fileaddress[]);
 int find_action_byword(char str[], char fileaddress[], int at);
 int find_action_all(char str[], char fileaddress[]);
@@ -1005,7 +1005,7 @@ int find()
     // FIX *a CASE
     // FIX *a* CASE
     // ADD \n FEATURE
-    
+
     char str[STR_MAX_LENGTH], fileaddress[1000];
     int mode, at;
     at = 1;
@@ -1144,13 +1144,18 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     char *pos = copy;
     int star_index[1000] = {0};
     int i = 0;
-    while ((pos = strstr(pos, "*")) != NULL)
+    for(int k=0;copy[k]!=0;k++)
     {
-        if (*(pos - 1) == '\\')
-            continue;
-        *pos = 0;
-        star_index[i] = (pos - copy) / sizeof(char);
-        i++;
+        if(copy[k]=='*')
+        {
+            star_index[i]=k;
+            i++;
+        }
+    }
+    pos=copy;
+    for(int k=0;k<i;k++)
+    {
+        pos[star_index[k]]=0;
     }
 
     char line[STR_MAX_LENGTH];
@@ -1163,9 +1168,9 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     fgets(line, 4000, f);
     while (1)
     {
-        do
+        while (j <= i)
         {
-            result = find_action_next(line, pos + 1, end_point + 1, &end_point);
+            result = find_action_next(line, pos + 1, end_point + 1, &end_point, (j != 0));
             if (result == -1)
                 break;
             else if (start_point == -1) /*searched the first part*/
@@ -1173,7 +1178,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
 
             pos = copy + star_index[j] * sizeof(char);
             j++;
-        } while (j <= i);
+        }
 
         if (result != -1)
         {
@@ -1194,6 +1199,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
         {
             pos = copy - 1;
             j = 0;
+            start_point = -1;
         }
 
         // not found in this line or found but not enough times -> go to the next line
@@ -1212,7 +1218,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     return -1;
 }
 
-int find_action_next(char line[], char str[], int from, int *end_index_ptr)
+int find_action_next(char line[], char str[], int from, int *end_index_ptr, int star_start)
 {
     // handle \n \\ \" \' and \*
     char processed_str[STR_MAX_LENGTH] = {0};
@@ -1243,13 +1249,34 @@ int find_action_next(char line[], char str[], int from, int *end_index_ptr)
     int str_index = 0;
     int text_index = from;
     int starting_point = text_index;
-
-    while (str_index < strlen(processed_str) && text_index < strlen(line))
+    int fixed_start = -1;
+    while (1)
     {
+        // find the last occurence if there is a star before pattern (*a)
+        if (str_index == strlen(processed_str))
+        {
+            if (!star_start)
+                break;
+            fixed_start = starting_point;
+            starting_point++;
+            text_index = starting_point;
+            str_index = 0;
+        }
+        if (text_index == strlen(line))
+        {
+            if (fixed_start != -1)
+                str_index = strlen(processed_str);
+            break;
+        }
         if (line[text_index] != str[str_index])
         {
             if (line[text_index] == ' ')
             {
+                if (fixed_start != -1)
+                {
+                    str_index = strlen(processed_str);
+                    break;
+                }
                 int next_word_index;
                 for (int i = text_index;; i++)
                 {
@@ -1281,8 +1308,12 @@ int find_action_next(char line[], char str[], int from, int *end_index_ptr)
 
     if (str_index == strlen(processed_str))
     {
-        *end_index_ptr = starting_point + strlen(processed_str) - 1;
-        return starting_point;
+        if (!star_start)
+        {
+            fixed_start = starting_point;
+        }
+        *end_index_ptr = fixed_start + strlen(processed_str) - 1;
+        return fixed_start;
     }
     else
     {
