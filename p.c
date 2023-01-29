@@ -61,13 +61,19 @@ int pastestr_action(char fileaddress[], int pos_line, int pos_char);
 
 int find();
 int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr);
-int find_action_vanilla(char str[], char fileaddress[], int at);
+int find_action_vanilla(char str[], char fileaddress[], int at, int *end_ptr);
 int find_action_next(char line[], char str[], int from, int *end_index_ptr, int star_start);
 int find_action_count(char str[], char fileaddress[]);
 int find_action_byword(char str[], char fileaddress[], int at);
 int wordnum(char fileaddress[], int pos_char);
 int find_action_all(char str[], char fileaddress[]);
 int find_action_all_byword(char str[], char fileaddress[]);
+
+int replace();
+int replace_input(char fileaddress[], char str1[], char str2[], int *mode_ptr, int *at_ptr);
+int pos_to_line_char(int pos, int *pos_line_ptr, int *pos_char_ptr, char fileaddress[]);
+int replace_at(char fileaddress[], char str1[], char str2[], int at);
+int replace_all(char fileaddress[], char str1[], char str2[]);
 
 int main()
 {
@@ -108,6 +114,10 @@ int main()
         else if (!strcmp(command, "find"))
         {
             find();
+        }
+        else if (!strcmp(command, "replace"))
+        {
+            replace();
         }
         else if (!strcmp(command, "exit"))
         {
@@ -453,7 +463,7 @@ int str_input(char str[])
     char word[1000];
     int dq = 0;
 
-    // first word is --str
+    // first word is --str or --str1 or --str2
     scanf("%s ", word);
 
     scanf("%s", word);
@@ -1018,7 +1028,8 @@ int find()
 
     if (mode == -1)
     {
-        found = find_action_vanilla(str, fileaddress, at);
+        int end_index;
+        found = find_action_vanilla(str, fileaddress, at, &end_index);
         if (found == -2)
             return -1;
 
@@ -1129,7 +1140,7 @@ int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr)
     return 0;
 }
 
-int find_action_vanilla(char str[], char fileaddress[], int at)
+int find_action_vanilla(char str[], char fileaddress[], int at, int *end_ptr)
 {
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
@@ -1191,6 +1202,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
             if (at == 1)
             {
                 fclose(f);
+                *end_ptr = end_point + chars_so_far;
                 return start_point + chars_so_far;
             }
             else
@@ -1221,6 +1233,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     }
 
     fclose(f);
+    *end_ptr = -1;
     return -1;
 }
 
@@ -1342,9 +1355,10 @@ int find_action_count(char str[], char fileaddress[])
 {
     int index[100] = {0};
     int at;
+    int end_index;
     for (at = 1;; at++)
     {
-        index[at - 1] = find_action_vanilla(str, fileaddress, at);
+        index[at - 1] = find_action_vanilla(str, fileaddress, at, &end_index);
         if (index[at - 1] == -1)
             break;
     }
@@ -1486,9 +1500,10 @@ int find_action_all(char str[], char fileaddress[])
 {
     int index[100] = {0};
     int at;
+    int end_index;
     for (at = 1;; at++)
     {
-        index[at - 1] = find_action_vanilla(str, fileaddress, at);
+        index[at - 1] = find_action_vanilla(str, fileaddress, at, &end_index);
         if (index[at - 1] == -1)
             break;
     }
@@ -1531,5 +1546,153 @@ int find_action_all_byword(char str[], char fileaddress[])
         printf("%d, ", index[i]);
     }
     printf("%d\n", index[at - 2]);
+    return 0;
+}
+
+int replace()
+{
+    char fileaddress[1000], str1[STR_MAX_LENGTH], str2[STR_MAX_LENGTH];
+    int mode = 0, at = 1;
+
+    int valid_input = replace_input(fileaddress, str1, str2, &mode, &at);
+    if (mode == 0)
+    {
+        if (replace_at(fileaddress, str1, str2, at) == -1)
+        {
+            error_msg("match not found");
+            return -1;
+        }
+        else
+        {
+            printf("match found and replaced\n");
+            return 0;
+        }
+    }
+    else
+        return replace_all(fileaddress, str1, str2);
+}
+
+int replace_input(char fileaddress[], char str1[], char str2[], int *mode_ptr, int *at_ptr)
+{
+    int valid_str1 = str_input(str1);
+    if (valid_str1 == -1)
+    {
+        return -1;
+    }
+
+    int valid_str2 = str_input(str2);
+    if (valid_str2 == -1)
+    {
+        return -1;
+    }
+
+    int valid_file = file_input_by_word(fileaddress);
+    if (valid_file == -1)
+    {
+        return -1;
+    }
+
+    // mode
+    char c = getchar();
+    if (c == '\n')
+        return 0;
+    char word[100];
+    scanf("%s", word);
+    if (!strcmp(word, "-at"))
+    {
+        scanf("%d", at_ptr);
+    }
+    else if (!strcmp(word, "-all"))
+    {
+        *mode_ptr = 1;
+    }
+
+    return 0;
+}
+
+int pos_to_line_char(int pos, int *pos_line_ptr, int *pos_char_ptr, char fileaddress[])
+{
+    FILE *f = fopen(fileaddress, "r");
+
+    int line_count = 0;
+    int char_count = 0;
+    int count = 0;
+    char c;
+
+    while (count < pos)
+    {
+        c = fgetc(f);
+        if (c == '\n')
+        {
+            line_count++;
+            char_count = -1;
+        }
+        count++;
+        char_count++;
+    }
+
+    *pos_line_ptr = line_count;
+    *pos_char_ptr = char_count;
+    return 0;
+}
+
+int replace_at(char fileaddress[], char str1[], char str2[], int at)
+{
+    int end_index;
+    int start = find_action_vanilla(str1, fileaddress, at, &end_index);
+    if (start == -1)
+    {
+        return -1;
+    }
+
+    int pos_line, pos_char;
+    pos_to_line_char(start, &pos_line, &pos_char, fileaddress);
+    removestr_action(fileaddress, pos_line, pos_char, end_index - start + 1, 'f');
+    insertstr_action(fileaddress, str2, pos_line, pos_char);
+    return 0;
+}
+
+int replace_all(char fileaddress[], char str1[], char str2[])
+{
+    int start[1000] = {0};
+    int length[1000] = {0};
+    int end;
+    int i;
+    int temp;
+    int offset = 0;
+
+    // find start position and length
+    for (i = 1;; i++)
+    {
+        temp = find_action_vanilla(str1, fileaddress, i, &end);
+        if (temp == -1)
+        {
+            i--;
+            break;
+        }
+        length[i - 1] = end - temp + 1;
+        start[i - 1] = temp + offset;
+        offset += (strlen(str2) - length[i - 1]);
+    }
+
+    // replace
+    int pos_line, pos_char;
+    for (int j = 0; j < i; j++)
+    {
+        pos_to_line_char(start[j], &pos_line, &pos_char, fileaddress);
+        removestr_action(fileaddress, pos_line, pos_char, length[j], 'f');
+        insertstr_action(fileaddress, str2, pos_line, pos_char);
+    }
+
+    // message
+    if (i == 0)
+    {
+        error_msg("no matches found");
+        return -1;
+    }
+    else if (i == 1)
+        printf("1 match found and replaced\n");
+    else
+        printf("%d matches found and replaced\n", i);
     return 0;
 }
