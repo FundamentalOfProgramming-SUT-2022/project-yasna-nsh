@@ -1144,18 +1144,18 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     char *pos = copy;
     int star_index[1000] = {0};
     int i = 0;
-    for(int k=0;copy[k]!=0;k++)
+    for (int k = 0; copy[k] != 0; k++)
     {
-        if(copy[k]=='*')
+        if (copy[k] == '*')
         {
-            star_index[i]=k;
+            star_index[i] = k;
             i++;
         }
     }
-    pos=copy;
-    for(int k=0;k<i;k++)
+    pos = copy;
+    for (int k = 0; k < i; k++)
     {
-        pos[star_index[k]]=0;
+        pos[star_index[k]] = 0;
     }
 
     char line[STR_MAX_LENGTH];
@@ -1220,6 +1220,19 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
 
 int find_action_next(char line[], char str[], int from, int *end_index_ptr, int star_start)
 {
+    // find the end index of cases like a*
+    if (star_start  && strlen(str) == 0)
+    {
+        for (int i = from;; i++)
+        {
+            if (i == strlen(line) || line[i] == ' ')
+            {
+                *end_index_ptr = i - 1;
+                return from;
+            }
+        }
+    }
+
     // handle \n \\ \" \' and \*
     char processed_str[STR_MAX_LENGTH] = {0};
     int i_str1 = 0;
@@ -1262,7 +1275,7 @@ int find_action_next(char line[], char str[], int from, int *end_index_ptr, int 
             text_index = starting_point;
             str_index = 0;
         }
-        if (text_index == strlen(line))
+        if (text_index >= strlen(line))
         {
             if (fixed_start != -1)
                 str_index = strlen(processed_str);
@@ -1286,9 +1299,6 @@ int find_action_next(char line[], char str[], int from, int *end_index_ptr, int 
                         break;
                     }
                 }
-                // starting_point = next_word_index;
-                // text_index = starting_point;
-                // str_index = 0;
                 *end_index_ptr = next_word_index - 1;
                 return -1;
             }
