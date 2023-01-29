@@ -65,6 +65,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at);
 int find_action_next(char line[], char str[], int from, int *end_index_ptr, int star_start);
 int find_action_count(char str[], char fileaddress[]);
 int find_action_byword(char str[], char fileaddress[], int at);
+int wordnum(char fileaddress[], int pos_char);
 int find_action_all(char str[], char fileaddress[]);
 int find_action_all_byword(char str[], char fileaddress[]);
 
@@ -1002,8 +1003,6 @@ int pastestr_action(char fileaddress[], int pos_line, int pos_char)
 
 int find()
 {
-    // FIX *a CASE
-    // FIX *a* CASE
     // ADD \n FEATURE
 
     char str[STR_MAX_LENGTH], fileaddress[1000];
@@ -1020,6 +1019,9 @@ int find()
     if (mode == -1)
     {
         found = find_action_vanilla(str, fileaddress, at);
+        if (found == -2)
+            return -1;
+
         printf("%d\n", found);
     }
     else if (mode == COUNT_MODE)
@@ -1029,6 +1031,10 @@ int find()
     else if (mode == BYWORD_MODE)
     {
         found = find_action_byword(str, fileaddress, at);
+        if (found == -2)
+            return -1;
+
+        printf("%d\n", found);
     }
     else if (mode == ALL_MODE)
     {
@@ -1129,7 +1135,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     if (f == NULL)
     {
         error_msg("file doesn't exist");
-        return -1;
+        return -2;
     }
 
     // change *'s to 0's
@@ -1221,7 +1227,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
 int find_action_next(char line[], char str[], int from, int *end_index_ptr, int star_start)
 {
     // find the end index of cases like a*
-    if (star_start  && strlen(str) == 0)
+    if (star_start && strlen(str) == 0)
     {
         for (int i = from;; i++)
         {
@@ -1353,6 +1359,127 @@ int find_action_count(char str[], char fileaddress[])
 
 int find_action_byword(char str[], char fileaddress[], int at)
 {
+    FILE *f = fopen(fileaddress, "r");
+    if (f == NULL)
+    {
+        error_msg("file doesn't exist");
+        return -2;
+    }
+
+    // change *'s to 0's
+    char copy[STR_MAX_LENGTH];
+    for (int i = 0; i < STR_MAX_LENGTH; i++)
+    {
+        copy[i] = str[i];
+        if (str[i] == 0)
+            break;
+    }
+
+    char *pos = copy;
+    int star_index[1000] = {0};
+    int i = 0;
+    for (int k = 0; copy[k] != 0; k++)
+    {
+        if (copy[k] == '*')
+        {
+            star_index[i] = k;
+            i++;
+        }
+    }
+    pos = copy;
+    for (int k = 0; k < i; k++)
+    {
+        pos[star_index[k]] = 0;
+    }
+
+    char line[STR_MAX_LENGTH];
+    int start_point = -1;
+    int end_point = -1;
+    int result;
+    int j = 0;
+    int chars_so_far = 0;
+    pos = copy - 1;
+    fgets(line, 4000, f);
+    while (1)
+    {
+        while (j <= i)
+        {
+            result = find_action_next(line, pos + 1, end_point + 1, &end_point, (j != 0));
+            if (result == -1)
+                break;
+            else if (start_point == -1) /*searched the first part*/
+                start_point = result;
+
+            pos = copy + star_index[j] * sizeof(char);
+            j++;
+        }
+
+        if (result != -1)
+        {
+            if (at == 1)
+            {
+                fclose(f);
+                return wordnum(fileaddress, start_point + chars_so_far);
+            }
+            else
+            {
+                at--;
+                pos = copy - 1;
+                j = 0;
+                start_point = -1;
+            }
+        }
+        else
+        {
+            pos = copy - 1;
+            j = 0;
+            start_point = -1;
+        }
+
+        // not found in this line or found but not enough times -> go to the next line
+        if (/*result == -1 ||*/ end_point == strlen(line) - 1)
+        {
+            chars_so_far += strlen(line);
+            if (fgets(line, 2000, f) == NULL)
+                break;
+            pos = copy - 1;
+            j = 0;
+            start_point = end_point = -1;
+        }
+    }
+
+    fclose(f);
+    return -1;
+}
+
+int wordnum(char fileaddress[], int pos_char)
+{
+    FILE *f = fopen(fileaddress, "r");
+
+    // word index is 1-based
+    int count = 1;
+    char c;
+    char prevc = 0;
+    for (int i = 0; i < pos_char; i++)
+    {
+        c = fgetc(f);
+
+        if (i == 0)
+        {
+            prevc = c;
+            continue;
+        }
+        if (c == ' ' || c == '\n')
+        {
+            if (prevc != ' ' && prevc != '\n')
+                count++;
+        }
+
+        prevc = c;
+    }
+
+    fclose(f);
+    return count;
 }
 
 int find_action_all(char str[], char fileaddress[])
@@ -1383,4 +1510,26 @@ int find_action_all(char str[], char fileaddress[])
 
 int find_action_all_byword(char str[], char fileaddress[])
 {
+    int index[100] = {0};
+    int at;
+    for (at = 1;; at++)
+    {
+        index[at - 1] = find_action_byword(str, fileaddress, at);
+        if (index[at - 1] == -1)
+            break;
+    }
+
+    // no match found
+    if (at == 1)
+    {
+        printf("-1\n");
+        return -1;
+    }
+
+    for (int i = 0; i < at - 2; i++)
+    {
+        printf("%d, ", index[i]);
+    }
+    printf("%d\n", index[at - 2]);
+    return 0;
 }
