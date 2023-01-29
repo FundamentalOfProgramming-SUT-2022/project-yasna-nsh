@@ -1152,7 +1152,7 @@ int find_action_vanilla(char str[], char fileaddress[], int at)
     int i = 0;
     for (int k = 0; copy[k] != 0; k++)
     {
-        if (copy[k] == '*')
+        if (copy[k] == '*' && (k == 0 || copy[k - 1] != '\\'))
         {
             star_index[i] = k;
             i++;
@@ -1287,7 +1287,7 @@ int find_action_next(char line[], char str[], int from, int *end_index_ptr, int 
                 str_index = strlen(processed_str);
             break;
         }
-        if (line[text_index] != str[str_index])
+        if (line[text_index] != processed_str[str_index])
         {
             if (line[text_index] == ' ')
             {
