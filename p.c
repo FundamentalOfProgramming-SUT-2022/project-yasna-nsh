@@ -80,6 +80,12 @@ int replace_all(char fileaddress[], char str1[], char str2[]);
 int tree();
 int tree_action(char path[], int depth, int count, char branch[]);
 
+int grep();
+int grep_input(char str[], char *opt_ptr);
+int grep_get_next_file(char fileaddress[]);
+int grep_action(char fileaddress[], char str[], char opt);
+int grep_search(char fileaddress[], char str[], char opt);
+
 int main()
 {
     char command[1000];
@@ -127,6 +133,10 @@ int main()
         else if (!strcmp(command, "tree"))
         {
             tree();
+        }
+        else if (!strcmp(command, "grep"))
+        {
+            grep();
         }
         else if (!strcmp(command, "exit"))
         {
@@ -1797,4 +1807,186 @@ int tree_action(char path[], const int depth, int count, char branch[])
     closedir(d);
 
     return 0;
+}
+
+int grep()
+{
+    char fileaddress[1000] = {0};
+    char str[STR_MAX_LENGTH];
+
+    // none, c, l
+    char opt = 'n';
+
+    int valid_input = grep_input(str, &opt);
+    if (valid_input == -1)
+        return -1;
+
+    int valid_action = grep_action(fileaddress, str, opt);
+    if (valid_action == -1)
+        return -1;
+
+    return 0;
+}
+
+int grep_input(char str[], char *opt_ptr)
+{
+    char word[1000];
+    scanf("%s", word);
+    if (!strcmp(word, "--str"))
+    {
+        *opt_ptr = 'n';
+    }
+    else
+    {
+        if (!strcmp(word, "-c"))
+            *opt_ptr = 'c';
+        else
+            *opt_ptr = 'l';
+
+        // get --str
+        scanf("%s", word);
+    }
+
+    // get string
+    scanf("%s", word);
+
+    if (word[0] != '\"')
+    {
+        strcpy(str, word);
+    }
+    else
+    {
+        for (int i = 1; i < strlen(word); i++)
+        {
+            str[i - 1] = word[i];
+        }
+
+        int i = strlen(word) - 1;
+        char c;
+        while (1)
+        {
+            c = getchar();
+            if (c == '\"' && str[i - 1] != '\\')
+                break;
+            str[i] = c;
+            i++;
+        }
+        str[i] = 0;
+    }
+
+    // get --files
+    scanf("%s", word);
+    return 0;
+}
+
+int grep_get_next_file(char fileaddress[])
+{
+    if (getchar() == '\n')
+        return -1;
+    char word[1000];
+
+    scanf("%s", word);
+    if (word[0] != '\"')
+    {
+        strcpy(fileaddress, word);
+    }
+    else
+    {
+        for (int i = 1; i < strlen(word); i++)
+        {
+            fileaddress[i - 1] = word[i];
+        }
+
+        int i = strlen(word) - 1;
+        char c;
+        while (1)
+        {
+            c = getchar();
+            if (c == '\"' && fileaddress[i - 1] != '\\')
+                break;
+            fileaddress[i] = c;
+            i++;
+        }
+        fileaddress[i] = 0;
+    }
+
+    // remove the starting \ or /
+    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
+    {
+        for (int i = 1; i < strlen(fileaddress); i++)
+        {
+            fileaddress[i - 1] = fileaddress[i];
+        }
+        fileaddress[strlen(fileaddress) - 1] = 0;
+    }
+
+    FILE *f = fopen(fileaddress, "r");
+    if (f == NULL)
+    {
+        error_msg("this file doesn't exist");
+        clearline();
+        return -1;
+    }
+    else
+    {
+        fclose(f);
+    }
+    return 0;
+}
+
+int grep_action(char fileaddress[], char str[], char opt)
+{
+    int count = 0;
+
+    while (grep_get_next_file(fileaddress) != -1)
+    {
+        count += grep_search(fileaddress, str, opt);
+    }
+
+    if (count == 0)
+        error_msg("no cases found");
+    else if (opt == 'c')
+    {
+        if (count == 1)
+            printf("1 case found\n");
+        else
+            printf("%d cases found\n", count);
+    }
+
+    return 0;
+}
+
+int grep_search(char fileaddress[], char str[], char opt)
+{
+    FILE *f = fopen(fileaddress, "r");
+
+    int num = 0;
+    // LINE LONGER THAN 4000 CHARACTERS
+    char line[4000];
+    int line_count = 0;
+    while (fgets(line, 4000, f))
+    {
+        line_count++;
+        if (strstr(line, str) == NULL)
+        {
+            continue;
+        }
+
+        num++;
+        if (opt == 'n')
+        {
+            // prevent 2 enters in a row
+            if (line[strlen(line) - 1] == '\n')
+                line[strlen(line) - 1] = 0;
+            printf("[%s] <#%d>: %s\n", fileaddress, line_count, line);
+        }
+        else if (opt == 'l')
+        {
+            if (num == 1)
+                printf("%s\n", fileaddress);
+        }
+    }
+
+    fclose(f);
+    return num;
 }
