@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
 #include <direct.h>
+#include <windows.h>
 
 #define TEMP_FILE_NAME ".tempfile"
 #define CLIPBOARD_FILE_NAME ".clipboard"
@@ -75,6 +77,9 @@ int pos_to_line_char(int pos, int *pos_line_ptr, int *pos_char_ptr, char fileadd
 int replace_at(char fileaddress[], char str1[], char str2[], int at);
 int replace_all(char fileaddress[], char str1[], char str2[]);
 
+int tree();
+int tree_action(char path[], int depth, int count, char branch[]);
+
 int main()
 {
     char command[1000];
@@ -118,6 +123,10 @@ int main()
         else if (!strcmp(command, "replace"))
         {
             replace();
+        }
+        else if (!strcmp(command, "tree"))
+        {
+            tree();
         }
         else if (!strcmp(command, "exit"))
         {
@@ -843,6 +852,7 @@ int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
 {
     FILE *original_file = fopen(fileaddress, "r");
     FILE *clipboard = fopen(CLIPBOARD_FILE_NAME, "w");
+    SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
 
     char line[2000];
     line[0] = 0;
@@ -1694,5 +1704,97 @@ int replace_all(char fileaddress[], char str1[], char str2[])
         printf("1 match found and replaced\n");
     else
         printf("%d matches found and replaced\n", i);
+    return 0;
+}
+
+int tree()
+{
+    int depth = 0;
+    scanf("%d", &depth);
+    if (depth < -1)
+    {
+        error_msg("invalid depth");
+        return -1;
+    }
+
+    char path[1000] = {0};
+    char branch[100] = {0};
+    strcpy(path, "root");
+
+    if (depth != -1)
+        tree_action(path, depth, 0, branch);
+    else
+        tree_action(path, 1001, 0, branch);
+}
+
+int tree_action(char path[], const int depth, int count, char branch[])
+{
+    // reached depth
+    if (count > depth)
+        return 0;
+
+    DIR *d = opendir(path);
+    // reached a file
+    if (d == NULL)
+        return 0;
+
+    // . and ..
+    struct dirent *data = readdir(d);
+    data = readdir(d);
+    int num = 0;
+    while ((data = readdir(d)) != NULL)
+    {
+        num++;
+    }
+    closedir(d);
+
+    d = opendir(path);
+    data = readdir(d);
+    data = readdir(d);
+    char next_path[1000] = {0};
+    char this_branch[100] = {0};
+    char next_branch[100] = {0};
+    while ((data = readdir(d)) != NULL)
+    {
+        if (count != 0)
+        {
+            strcpy(this_branch, branch);
+            if (num == 1)
+            {
+                strcat(this_branch, "L---");
+                strcpy(next_branch, branch);
+                strcat(next_branch, "    ");
+            }
+            else
+            {
+                strcat(this_branch, "T---");
+                strcpy(next_branch, branch);
+                strcat(next_branch, "|   ");
+            }
+        }
+
+        for (int i = 0; i < strlen(this_branch); i++)
+        {
+            if (this_branch[i] == 'T')
+                printf("%c", 195);
+            else if (this_branch[i] == 'L')
+                printf("%c", 192);
+            else if (this_branch[i] == '|')
+                printf("%c", 179);
+            else if (this_branch[i] == '-')
+                printf("%c", 196);
+            else
+                printf(" ");
+        }
+
+        printf("%s\n", data->d_name);
+        strcpy(next_path, path);
+        strcat(next_path, "/");
+        strcat(next_path, data->d_name);
+        num--;
+        tree_action(next_path, depth, count + 1, next_branch);
+    }
+    closedir(d);
+
     return 0;
 }
