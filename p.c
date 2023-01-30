@@ -19,10 +19,17 @@
 #define ALL_MODE 2
 #define ALL_BYWORD_MODE 3
 
+#define RLIST_FILE_NAME ".removelist"
+#define RECORD_COUNT_EXT "_UNDO_COUNT"
+#define UNDO_EXT "_UNDO_NO_"
+
+void create_remove_list();
 void getcommand(char com[]);
 void error_msg(char *message);
 int newline_handle();
 void clearline();
+int track_changes(char fileaddress[]);
+void cleanup();
 
 int createfile();
 int file_input(char fileaddress[], int caller_id);
@@ -86,9 +93,14 @@ int grep_get_next_file(char fileaddress[]);
 int grep_action(char fileaddress[], char str[], char opt);
 int grep_search(char fileaddress[], char str[], char opt);
 
+int undo();
+int undo_action(char fileaddress[]);
+
 int main()
 {
+    create_remove_list();
     char command[1000];
+
     while (1)
     {
         printf("> ");
@@ -138,9 +150,13 @@ int main()
         {
             grep();
         }
+        else if (!strcmp(command, "undo"))
+        {
+            undo();
+        }
         else if (!strcmp(command, "exit"))
         {
-            // ADD EXIT FUNCTION TO CONTROL INPUTS LIKE "exit slfkj lsfjk lsjkf"
+            cleanup();
             break;
         }
         else
@@ -149,6 +165,21 @@ int main()
             clearline();
         }
     }
+}
+
+void create_remove_list()
+{
+    // if exited with ^C clear the last remove list
+    FILE *f = fopen(RLIST_FILE_NAME, "w");
+    SetFileAttributesA(RLIST_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
+    fclose(f);
+}
+
+void add_to_rlist(char fileaddress[])
+{
+    FILE *f = fopen(RLIST_FILE_NAME, "a");
+    fprintf(f, "%s\n", fileaddress);
+    fclose(f);
 }
 
 void getcommand(char com[])
@@ -178,6 +209,83 @@ void clearline()
         char tmp[1000];
         gets(tmp);
     }
+}
+
+int track_changes(char fileaddress[])
+{
+    char record_count_address[1000];
+    strcpy(record_count_address, fileaddress);
+    strcat(record_count_address, RECORD_COUNT_EXT);
+
+    // make file if it doesn't exist
+    FILE *record_count_file = fopen(record_count_address, "r");
+
+    int count;
+    if (record_count_file == NULL)
+    {
+        record_count_file = fopen(record_count_address, "w");
+        fprintf(record_count_file, "1");
+        count = 1;
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+        fclose(record_count_file);
+        add_to_rlist(record_count_address);
+    }
+    else
+    {
+        fscanf(record_count_file, "%d", &count);
+        count++;
+        fclose(record_count_file);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_NORMAL);
+        record_count_file = fopen(record_count_address, "w");
+        fprintf(record_count_file, "%d", count);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+        fclose(record_count_file);
+    }
+
+    // DOESN'T SUPPORT MORE THAN 9999 UNDOS
+    char num_str[5];
+    sprintf(num_str, "%d", count);
+
+    char new_record_address[1000];
+    strcpy(new_record_address, fileaddress);
+    strcat(new_record_address, UNDO_EXT);
+    strcat(new_record_address, num_str);
+    FILE *new_record_file = fopen(new_record_address, "w");
+
+    FILE *original_file = fopen(fileaddress, "r");
+
+    char line[2000];
+    while (fgets(line, 2000, original_file) != NULL)
+    {
+        fprintf(new_record_file, line);
+    }
+
+    fclose(original_file);
+    SetFileAttributesA(new_record_address, FILE_ATTRIBUTE_HIDDEN);
+    fclose(new_record_file);
+    add_to_rlist(new_record_address);
+
+    return 0;
+}
+
+void cleanup()
+{
+    remove(CLIPBOARD_FILE_NAME);
+
+    FILE *f = fopen(RLIST_FILE_NAME, "r");
+    char address[1000];
+    while (fgets(address, 1000, f) != NULL)
+    {
+        // reached end of the list
+        if (address[0] == '\n')
+            break;
+            
+        // remove the \n from the end
+        address[strlen(address) - 1] = 0;
+        remove(address);
+    }
+    fclose(f);
+    remove(RLIST_FILE_NAME);
 }
 
 int createfile()
@@ -312,7 +420,7 @@ int makepath(char fileaddress[])
     //?? do I need to check if the file name has a format
 
     // check if the file name is valid (doesn't contain forbidden characters)
-    FILE *test = fopen(filename, "w+");
+    FILE *test = fopen(filename, "w");
     if (test == NULL)
     {
         // SHOULD BE CHANGED: files which have the same name as a folder give this unrelated message
@@ -355,6 +463,8 @@ int cat()
         return -1;
     }
 
+    track_changes(fileaddress);
+
     int valid_action = cat_action(fileaddress);
     if (valid_action == -1)
     {
@@ -394,6 +504,8 @@ int insertstr()
     int valid_input = insertstr_input(fileaddress, str, &pos_line, &pos_char);
     if (valid_input == -1)
         return -1;
+
+    track_changes(fileaddress);
 
     int valid_action = insertstr_action(fileaddress, str, pos_line, pos_char);
     if (valid_action == -1)
@@ -667,6 +779,8 @@ int removestr()
     if (valid_input == -1)
         return -1;
 
+    track_changes(fileaddress);
+
     int valid_action = removestr_action(fileaddress, pos_line, pos_char, size, direction);
     if (valid_action == -1)
         return -1;
@@ -838,6 +952,8 @@ int copystr()
     if (valid_input == -1)
         return -1;
 
+    track_changes(fileaddress);
+
     int valid_action = copystr_action(fileaddress, pos_line, pos_char, size, direction);
     if (valid_action == -1)
         return -1;
@@ -861,8 +977,8 @@ int copystr_action(char fileaddress[], int pos_line, int pos_char, int size, cha
 int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
 {
     FILE *original_file = fopen(fileaddress, "r");
+    SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_NORMAL);
     FILE *clipboard = fopen(CLIPBOARD_FILE_NAME, "w");
-    SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
 
     char line[2000];
     line[0] = 0;
@@ -874,7 +990,7 @@ int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
             error_msg("the file doesn't have this many lines");
             fclose(original_file);
             fclose(clipboard);
-            remove(CLIPBOARD_FILE_NAME);
+            SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
             return -1;
         }
 
@@ -889,11 +1005,25 @@ int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
         fgetc(original_file);
         count++;
     }
+
+    char temp;
     for (int i = 0; i < size; i++)
-        fputc(fgetc(original_file), clipboard);
+    {
+        temp = fgetc(original_file);
+        if (temp == EOF)
+        {
+            error_msg("this line doesn't have enough characters");
+            fclose(original_file);
+            fclose(clipboard);
+            SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
+            return -1;
+        }
+        fputc(temp, clipboard);
+    }
 
     fclose(original_file);
     fclose(clipboard);
+    SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
     return 0;
 }
 
@@ -946,6 +1076,8 @@ int cutstr()
     if (valid_input == -1)
         return -1;
 
+    track_changes(fileaddress);
+
     int valid_action = cutstr_action(fileaddress, pos_line, pos_char, size, direction);
     if (valid_action == -1)
         return -1;
@@ -975,6 +1107,8 @@ int pastestr()
     int valid_input = pastestr_input(fileaddress, &pos_line, &pos_char);
     if (valid_input == -1)
         return -1;
+
+    track_changes(fileaddress);
 
     int valid_action = pastestr_action(fileaddress, pos_line, pos_char);
     if (valid_action == -1)
@@ -1043,6 +1177,8 @@ int find()
     int valid_input = find_input(str, fileaddress, &mode, &at);
     if (valid_input == -1)
         return -1;
+
+    track_changes(fileaddress);
 
     int found;
 
@@ -1575,6 +1711,11 @@ int replace()
     int mode = 0, at = 1;
 
     int valid_input = replace_input(fileaddress, str1, str2, &mode, &at);
+    if (valid_input == -1)
+        return -1;
+
+    track_changes(fileaddress);
+
     if (mode == 0)
     {
         if (replace_at(fileaddress, str1, str2, at) == -1)
@@ -1589,7 +1730,10 @@ int replace()
         }
     }
     else
-        return replace_all(fileaddress, str1, str2);
+    {
+        int temp = replace_all(fileaddress, str1, str2);
+        return temp;
+    }
 }
 
 int replace_input(char fileaddress[], char str1[], char str2[], int *mode_ptr, int *at_ptr)
@@ -1821,6 +1965,8 @@ int grep()
     if (valid_input == -1)
         return -1;
 
+    track_changes(fileaddress);
+
     int valid_action = grep_action(fileaddress, str, opt);
     if (valid_action == -1)
         return -1;
@@ -1989,4 +2135,74 @@ int grep_search(char fileaddress[], char str[], char opt)
 
     fclose(f);
     return num;
+}
+
+int undo()
+{
+    char fileaddress[1000];
+    int valid_input = file_input_by_word(fileaddress);
+    if (valid_input == -1)
+        return -1;
+    int valid_action = undo_action(fileaddress);
+    if (valid_action == -1)
+        return -1;
+    return 0;
+}
+
+int undo_action(char fileaddress[])
+{
+    char record_count_address[1000];
+    strcpy(record_count_address, fileaddress);
+    strcat(record_count_address, RECORD_COUNT_EXT);
+
+    // make file if it doesn't exist
+    FILE *record_count_file = fopen(record_count_address, "r");
+
+    int count;
+    if (record_count_file == NULL)
+    {
+        error_msg("history not found");
+        return -1;
+    }
+    else
+    {
+        // get and adjust the number of records
+        fscanf(record_count_file, "%d", &count);
+        if (count == 0)
+        {
+            error_msg("history not found");
+            SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+            fclose(record_count_file);
+            return -1;
+        }
+        fclose(record_count_file);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_NORMAL);
+        record_count_file = fopen(record_count_address, "w");
+        fprintf(record_count_file, "%d", count - 1);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+        fclose(record_count_file);
+    }
+
+    // DOESN'T SUPPORT MORE THAN 9999 UNDOS
+    char num_str[5];
+    sprintf(num_str, "%d", count);
+
+    char record_address[1000];
+    strcpy(record_address, fileaddress);
+    strcat(record_address, UNDO_EXT);
+    strcat(record_address, num_str);
+    FILE *record_file = fopen(record_address, "r");
+    FILE *original_file = fopen(fileaddress, "w");
+
+    char line[2000];
+    while (fgets(line, 2000, record_file) != NULL)
+    {
+        fprintf(original_file, line);
+    }
+
+    fclose(original_file);
+    fclose(record_file);
+    remove(record_address);
+
+    return 0;
 }
