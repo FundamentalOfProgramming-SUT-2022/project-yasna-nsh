@@ -23,11 +23,11 @@
 #define RECORD_COUNT_EXT "_UNDO_COUNT"
 #define UNDO_EXT "_UNDO_NO_"
 
-void create_remove_list();
+void create_remove_file();
 void getcommand(char com[]);
-void error_msg(char *message);
+void end_of_command();
 int newline_handle();
-void clearline();
+void error_msg(char *message);
 int track_changes(char fileaddress[]);
 void cleanup();
 
@@ -101,9 +101,13 @@ int compare_file_input(char fieladdress[]);
 int compare_action(char fileaddress1[], char fileaddress2[]);
 int compare_line_print(char line1[], char line2[]);
 
+int arman();
+
+FILE *command_file;
+
 int main()
 {
-    create_remove_list();
+    create_remove_file();
     char command[1000];
 
     while (1)
@@ -163,6 +167,10 @@ int main()
         {
             compare();
         }
+        else if (!strcmp(command, "arman"))
+        {
+            arman();
+        }
         else if (!strcmp(command, "exit"))
         {
             cleanup();
@@ -171,14 +179,15 @@ int main()
         else
         {
             error_msg("invalid input");
-            clearline();
         }
+
+        end_of_command();
     }
 }
 
-void create_remove_list()
+void create_remove_file()
 {
-    // if exited with ^C clear the last remove list
+    // create and clear remove_list
     FILE *f = fopen(RLIST_FILE_NAME, "w");
     SetFileAttributesA(RLIST_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
     fclose(f);
@@ -193,31 +202,36 @@ void add_to_rlist(char fileaddress[])
 
 void getcommand(char com[])
 {
-    scanf("%s", com);
+    command_file = fopen(".commandfile", "w");
+    char full_line[6000];
+    gets(full_line);
+    fprintf(command_file, full_line);
+    fclose(command_file);
+
+    command_file = fopen(".commandfile", "r");
+    if (strstr(full_line, "=D") != NULL)
+        strcpy(com, "arman");
+    else
+        fscanf(command_file, "%s", com);
 }
 
-void error_msg(char *message)
+void end_of_command()
 {
-    printf("%s\n", message);
+    fclose(command_file);
 }
 
-// next character newline (1) or space (0)
 int newline_handle()
 {
-    if (getchar() == '\n')
+    if (fgetc(command_file) == '\n')
         return 1;
 
     // this function is called after scanf(%s) -> the input character is either '\n' or ' '
     return 0;
 }
 
-void clearline()
+void error_msg(char *message)
 {
-    if (newline_handle() == 0)
-    {
-        char tmp[1000];
-        gets(tmp);
-    }
+    printf("%s\n", message);
 }
 
 int track_changes(char fileaddress[])
@@ -328,7 +342,7 @@ int file_input(char fileaddress[], int caller_code)
     }
 
     char keyword[1000];
-    scanf("%s", keyword);
+    fscanf(command_file, "%s", keyword);
 
     // check input validity (-1 is invalid)
     if (strcmp(keyword, "--file"))
@@ -346,7 +360,7 @@ int file_input(char fileaddress[], int caller_code)
         return -1;
     }
 
-    gets(fileaddress);
+    fgets(fileaddress, 1000, command_file);
     if (fileaddress[0] == '\"')
     {
         if (fileaddress[strlen(fileaddress) - 1] != '\"')
@@ -545,9 +559,9 @@ int file_input_by_word(char fileaddress[])
     char word[1000];
 
     // first word is --file
-    scanf("%s ", word);
+    fscanf(command_file, "%s ", word);
 
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
 
     if (word[0] != '\"')
     {
@@ -564,7 +578,7 @@ int file_input_by_word(char fileaddress[])
         char c;
         while (1)
         {
-            c = getchar();
+            c = fgetc(command_file);
             if (c == '\"' && fileaddress[i - 1] != '\\')
                 break;
             fileaddress[i] = c;
@@ -587,7 +601,6 @@ int file_input_by_word(char fileaddress[])
     if (f == NULL)
     {
         error_msg("this file doesn't exist");
-        clearline();
         return -1;
     }
     else
@@ -604,9 +617,9 @@ int str_input(char str[])
     int dq = 0;
 
     // first word is --str or --str1 or --str2
-    scanf("%s ", word);
+    fscanf(command_file, "%s ", word);
 
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
 
     if (word[0] != '\"')
     {
@@ -623,7 +636,7 @@ int str_input(char str[])
         char c;
         while (1)
         {
-            c = getchar();
+            c = fgetc(command_file);
             if (c == '\"' && str[i - 1] != '\\')
                 break;
             str[i] = c;
@@ -641,9 +654,9 @@ int pos_input(int *pos_line_ptr, int *pos_char_ptr)
 
     // first word is --pos
     char word[100];
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
 
-    if (scanf("%d:%d", pos_line_ptr, pos_char_ptr) != 2)
+    if (fscanf(command_file, "%d:%d", pos_line_ptr, pos_char_ptr) != 2)
     {
         error_msg("give the position with this format: --pos <line no>:<start position>");
         return -1;
@@ -651,13 +664,11 @@ int pos_input(int *pos_line_ptr, int *pos_char_ptr)
     if (*pos_line_ptr <= 0)
     {
         error_msg("the line number can't be zero or negative");
-        clearline();
         return -1;
     }
     if (*pos_char_ptr < 0)
     {
         error_msg("the start position can't be negative");
-        clearline();
         return -1;
     }
 
@@ -823,16 +834,16 @@ int size_input(int *size_ptr)
     char word[1000];
 
     // -size
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
 
-    scanf("%d", size_ptr);
+    fscanf(command_file, "%d", size_ptr);
     return 0;
 }
 
 int direction_input(char *direction_ptr)
 {
     char in[100];
-    scanf("%s", in);
+    fscanf(command_file, "%s", in);
     if (!strcmp(in, "-f"))
     {
         *direction_ptr = 'f';
@@ -1234,18 +1245,18 @@ int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr)
     int valid_file = file_input_by_word(fileaddress);
     if (valid_file == -1)
         return -1;
-    if (getchar() != '\n')
+    if (fgetc(command_file) != '\n')
     {
         char att[30];
         int count, all, byword, at;
         count = all = byword = at = 0;
         do
         {
-            scanf("%s", att);
+            fscanf(command_file, "%s", att);
             if (!strcmp(att, "-at"))
             {
                 at = 1;
-                scanf("%d", at_ptr);
+                fscanf(command_file, "%d", at_ptr);
             }
             else if (!strcmp(att, "-count"))
             {
@@ -1259,7 +1270,7 @@ int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr)
             {
                 byword++;
             }
-        } while (getchar() != '\n');
+        } while (fgetc(command_file) != '\n');
 
         if (count)
         {
@@ -1766,14 +1777,14 @@ int replace_input(char fileaddress[], char str1[], char str2[], int *mode_ptr, i
     }
 
     // mode
-    char c = getchar();
+    char c = fgetc(command_file);
     if (c == '\n')
         return 0;
     char word[100];
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
     if (!strcmp(word, "-at"))
     {
-        scanf("%d", at_ptr);
+        fscanf(command_file, "%d", at_ptr);
     }
     else if (!strcmp(word, "-all"))
     {
@@ -1873,7 +1884,7 @@ int replace_all(char fileaddress[], char str1[], char str2[])
 int tree()
 {
     int depth = 0;
-    scanf("%d", &depth);
+    fscanf(command_file, "%d", &depth);
     if (depth < -1)
     {
         error_msg("invalid depth");
@@ -1986,7 +1997,7 @@ int grep()
 int grep_input(char str[], char *opt_ptr)
 {
     char word[1000];
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
     if (!strcmp(word, "--str"))
     {
         *opt_ptr = 'n';
@@ -1999,11 +2010,11 @@ int grep_input(char str[], char *opt_ptr)
             *opt_ptr = 'l';
 
         // get --str
-        scanf("%s", word);
+        fscanf(command_file, "%s", word);
     }
 
     // get string
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
 
     if (word[0] != '\"')
     {
@@ -2020,7 +2031,7 @@ int grep_input(char str[], char *opt_ptr)
         char c;
         while (1)
         {
-            c = getchar();
+            c = fgetc(command_file);
             if (c == '\"' && str[i - 1] != '\\')
                 break;
             str[i] = c;
@@ -2030,17 +2041,17 @@ int grep_input(char str[], char *opt_ptr)
     }
 
     // get --files
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
     return 0;
 }
 
 int grep_get_next_file(char fileaddress[])
 {
-    if (getchar() == '\n')
+    if (fgetc(command_file) == '\n')
         return -1;
     char word[1000];
 
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
     if (word[0] != '\"')
     {
         strcpy(fileaddress, word);
@@ -2056,7 +2067,7 @@ int grep_get_next_file(char fileaddress[])
         char c;
         while (1)
         {
-            c = getchar();
+            c = fgetc(command_file);
             if (c == '\"' && fileaddress[i - 1] != '\\')
                 break;
             fileaddress[i] = c;
@@ -2079,7 +2090,6 @@ int grep_get_next_file(char fileaddress[])
     if (f == NULL)
     {
         error_msg("this file doesn't exist");
-        clearline();
         return -1;
     }
     else
@@ -2233,7 +2243,7 @@ int compare()
 int compare_file_input(char fileaddress[])
 {
     char word[1000];
-    scanf("%s", word);
+    fscanf(command_file, "%s", word);
 
     if (word[0] != '\"')
     {
@@ -2250,7 +2260,7 @@ int compare_file_input(char fileaddress[])
         char c;
         while (1)
         {
-            c = getchar();
+            c = fgetc(command_file);
             if (c == '\"' && fileaddress[i - 1] != '\\')
                 break;
             fileaddress[i] = c;
@@ -2273,7 +2283,6 @@ int compare_file_input(char fileaddress[])
     if (f == NULL)
     {
         error_msg("this file doesn't exist");
-        clearline();
         return -1;
     }
     else
@@ -2500,4 +2509,8 @@ int compare_line_print(char line1[], char line2[])
     printf("\n");
 
     return 0;
+}
+
+int arman()
+{
 }
