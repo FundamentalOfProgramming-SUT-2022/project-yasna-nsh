@@ -104,11 +104,15 @@ int compare_line_print(char line1[], char line2[]);
 int arman();
 
 FILE *command_file;
+int is_arman = 0;
+int first_time = 1;
+char arman_result[10000];
+char prev_output[10000];
 
 int main()
 {
     create_remove_file();
-    char command[1000];
+    char command[100];
 
     while (1)
     {
@@ -309,6 +313,7 @@ void cleanup()
     }
     fclose(f);
     remove(RLIST_FILE_NAME);
+    remove(".commandfile");
 }
 
 int createfile()
@@ -481,6 +486,7 @@ int cat()
 {
     char fileaddress[1000];
     int valid_input = file_input(fileaddress, CAT_CODE);
+
     if (valid_input == -1)
     {
         return -1;
@@ -510,10 +516,13 @@ int cat_action(char fileaddress[])
 
     while (fgets(line, 1000, f) != NULL)
     {
-        printf("%s", line);
+        if (!is_arman)
+            printf("%s", line);
+        else
+            sprintf(arman_result + strlen(arman_result), line);
     }
-    printf("\n");
-
+    if (!is_arman)
+        printf("\n");
     fclose(f);
     return 0;
 }
@@ -543,7 +552,14 @@ int insertstr_input(char fileaddress[], char str[], int *pos_line_ptr, int *pos_
     if (valid_file == -1)
         return -1;
 
-    int valid_str = str_input(str);
+    int valid_str = 0;
+    if (!first_time)
+    {
+        strcpy(str, prev_output);
+    }
+    else
+        valid_str = str_input(str);
+
     if (valid_str == -1)
         return -1;
 
@@ -1208,8 +1224,10 @@ int find()
         found = find_action_vanilla(str, fileaddress, at, &end_index);
         if (found == -2)
             return -1;
-
-        printf("%d\n", found);
+        if (!is_arman)
+            printf("%d\n", found);
+        else
+            sprintf(arman_result + strlen(arman_result), "%d", found);
     }
     else if (mode == COUNT_MODE)
     {
@@ -1221,7 +1239,10 @@ int find()
         if (found == -2)
             return -1;
 
-        printf("%d\n", found);
+        if (!is_arman)
+            printf("%d\n", found);
+        else
+            sprintf(arman_result + strlen(arman_result), "%d", found);
     }
     else if (mode == ALL_MODE)
     {
@@ -1239,12 +1260,18 @@ int find()
 
 int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr)
 {
-    int valid_str = str_input(str);
+    int valid_str = 0;
+    if (!first_time)
+        strcpy(str, prev_output);
+    else
+        valid_str = str_input(str);
     if (valid_str == -1)
         return -1;
     int valid_file = file_input_by_word(fileaddress);
     if (valid_file == -1)
         return -1;
+
+    char temp;
     if (fgetc(command_file) != '\n')
     {
         char att[30];
@@ -1270,7 +1297,7 @@ int find_input(char str[], char fileaddress[], int *mode_ptr, int *at_ptr)
             {
                 byword++;
             }
-        } while (fgetc(command_file) != '\n');
+        } while ((temp = fgetc(command_file)) != '\n' && temp != EOF);
 
         if (count)
         {
@@ -1540,10 +1567,16 @@ int find_action_count(char str[], char fileaddress[])
     }
     if (at == 1)
     {
-        printf("-1\n");
+        if (!is_arman)
+            printf("-1\n");
+        else
+            sprintf(arman_result + strlen(arman_result), "-1");
         return -1;
     }
-    printf("%d\n", at - 1);
+    if (!is_arman)
+        printf("%d\n", at - 1);
+    else
+        sprintf(arman_result + strlen(arman_result), "%d", at - 1);
     return 0;
 }
 
@@ -1687,15 +1720,24 @@ int find_action_all(char str[], char fileaddress[])
     // no match found
     if (at == 1)
     {
-        printf("-1\n");
+        if (!is_arman)
+            printf("-1\n");
+        else
+            sprintf(arman_result + strlen(arman_result), "-1");
         return -1;
     }
 
     for (int i = 0; i < at - 2; i++)
     {
-        printf("%d, ", index[i]);
+        if (!is_arman)
+            printf("%d, ", index[i]);
+        else
+            sprintf(arman_result + strlen(arman_result), "%d, ", index[i]);
     }
-    printf("%d\n", index[at - 2]);
+    if (!is_arman)
+        printf("%d\n", index[at - 2]);
+    else
+        sprintf(arman_result + strlen(arman_result), "%d", index[at - 2]);
     return 0;
 }
 
@@ -1713,15 +1755,24 @@ int find_action_all_byword(char str[], char fileaddress[])
     // no match found
     if (at == 1)
     {
-        printf("-1\n");
+        if (!is_arman)
+            printf("-1\n");
+        else
+            sprintf(arman_result + strlen(arman_result), "-1");
         return -1;
     }
 
     for (int i = 0; i < at - 2; i++)
     {
-        printf("%d, ", index[i]);
+        if (!is_arman)
+            printf("%d, ", index[i]);
+        else
+            sprintf(arman_result + strlen(arman_result), "%d, ", index[i]);
     }
-    printf("%d\n", index[at - 2]);
+    if (!is_arman)
+        printf("%d\n", index[at - 2]);
+    else
+        sprintf(arman_result + strlen(arman_result), "%d", index[at - 2]);
     return 0;
 }
 
@@ -1758,7 +1809,11 @@ int replace()
 
 int replace_input(char fileaddress[], char str1[], char str2[], int *mode_ptr, int *at_ptr)
 {
-    int valid_str1 = str_input(str1);
+    int valid_str1 = 1;
+    if (!first_time)
+        strcpy(str1, prev_output);
+    else
+        valid_str1 = str_input(str1);
     if (valid_str1 == -1)
     {
         return -1;
@@ -1949,19 +2004,49 @@ int tree_action(char path[], const int depth, int count, char branch[])
 
         for (int i = 0; i < strlen(this_branch); i++)
         {
+            // PROBLEM IN WRITING AND SIZE OF CHARACTERS??
             if (this_branch[i] == 'T')
-                printf("%c", 195);
+            {
+                if (!is_arman)
+                    printf("%c", 195);
+                else
+                    sprintf(arman_result + strlen(arman_result), "|");
+            }
             else if (this_branch[i] == 'L')
-                printf("%c", 192);
+            {
+                if (!is_arman)
+                    printf("%c", 192);
+                else
+                    sprintf(arman_result + strlen(arman_result), "L");
+            }
             else if (this_branch[i] == '|')
-                printf("%c", 179);
+            {
+                if (!is_arman)
+                    printf("%c", 179);
+                else
+                    sprintf(arman_result + strlen(arman_result), "|");
+            }
             else if (this_branch[i] == '-')
-                printf("%c", 196);
+            {
+                if (!is_arman)
+                    printf("%c", 196);
+                else
+                    sprintf(arman_result + strlen(arman_result), ".");
+            }
             else
-                printf(" ");
+            {
+                if (!is_arman)
+                    printf(" ");
+                else
+                    sprintf(arman_result + strlen(arman_result), " ");
+            }
         }
 
-        printf("%s\n", data->d_name);
+        if (!is_arman)
+            printf("%s\n", data->d_name);
+        else
+            sprintf(arman_result + strlen(arman_result), "%s\n", data->d_name);
+
         strcpy(next_path, path);
         strcat(next_path, "/");
         strcat(next_path, data->d_name);
@@ -1998,7 +2083,7 @@ int grep_input(char str[], char *opt_ptr)
 {
     char word[1000];
     fscanf(command_file, "%s", word);
-    if (!strcmp(word, "--str"))
+    if (!strcmp(word, "--str") || !strcmp(word, "--files"))
     {
         *opt_ptr = 'n';
     }
@@ -2010,34 +2095,40 @@ int grep_input(char str[], char *opt_ptr)
             *opt_ptr = 'l';
 
         // get --str
-        fscanf(command_file, "%s", word);
+        if (first_time)
+            fscanf(command_file, "%s", word);
     }
 
     // get string
-    fscanf(command_file, "%s", word);
-
-    if (word[0] != '\"')
-    {
-        strcpy(str, word);
-    }
+    if (!first_time)
+        strcpy(str, prev_output);
     else
     {
-        for (int i = 1; i < strlen(word); i++)
-        {
-            str[i - 1] = word[i];
-        }
+        fscanf(command_file, "%s", word);
 
-        int i = strlen(word) - 1;
-        char c;
-        while (1)
+        if (word[0] != '\"')
         {
-            c = fgetc(command_file);
-            if (c == '\"' && str[i - 1] != '\\')
-                break;
-            str[i] = c;
-            i++;
+            strcpy(str, word);
         }
-        str[i] = 0;
+        else
+        {
+            for (int i = 1; i < strlen(word); i++)
+            {
+                str[i - 1] = word[i];
+            }
+
+            int i = strlen(word) - 1;
+            char c;
+            while (1)
+            {
+                c = fgetc(command_file);
+                if (c == '\"' && str[i - 1] != '\\')
+                    break;
+                str[i] = c;
+                i++;
+            }
+            str[i] = 0;
+        }
     }
 
     // get --files
@@ -2113,9 +2204,19 @@ int grep_action(char fileaddress[], char str[], char opt)
     else if (opt == 'c')
     {
         if (count == 1)
-            printf("1 case found\n");
+        {
+            if (!is_arman)
+                printf("1 case found\n");
+            else
+                sprintf(arman_result + strlen(arman_result), "1 case found");
+        }
         else
-            printf("%d cases found\n", count);
+        {
+            if (!is_arman)
+                printf("%d cases found\n", count);
+            else
+                sprintf(arman_result + strlen(arman_result), "%d cases found", count);
+        }
     }
 
     return 0;
@@ -2143,12 +2244,20 @@ int grep_search(char fileaddress[], char str[], char opt)
             // prevent 2 enters in a row
             if (line[strlen(line) - 1] == '\n')
                 line[strlen(line) - 1] = 0;
-            printf("[%s] <#%d>: %s\n", fileaddress, line_count, line);
+            if (!is_arman)
+                printf("[%s] <#%d>: %s\n", fileaddress, line_count, line);
+            else
+                sprintf(arman_result + strlen(arman_result), "[%s] <#%d>: %s\n", fileaddress, line_count, line);
         }
         else if (opt == 'l')
         {
             if (num == 1)
-                printf("%s\n", fileaddress);
+            {
+                if (!is_arman)
+                    printf("%s\n", fileaddress);
+                else
+                    sprintf(arman_result + strlen(arman_result), "%s\n", fileaddress);
+            }
         }
     }
 
@@ -2320,7 +2429,10 @@ int compare_action(char fileaddress1[], char fileaddress2[])
 
         if (strcmp(line1, line2))
         {
-            printf("============ #%d ============\n", line_num);
+            if (!is_arman)
+                printf("============ #%d ============\n", line_num);
+            else
+                sprintf(arman_result + strlen(arman_result), "============ #%d ============\n", line_num);
             compare_line_print(line1, line2);
         }
         line_num++;
@@ -2337,8 +2449,11 @@ int compare_action(char fileaddress1[], char fileaddress2[])
     {
         while (fgets(line2, 2000, f2) != NULL)
             end++;
+        if (!is_arman)
+            printf(">>>>>>>>>>>> #%d - #%d >>>>>>>>>>>>\n", start, end);
+        else
+            sprintf(arman_result + strlen(arman_result), ">>>>>>>>>>>> #%d - #%d >>>>>>>>>>>>\n", start, end);
 
-        printf(">>>>>>>>>>>> #%d - #%d >>>>>>>>>>>>\n", start, end);
         strcpy(longer_file_address, fileaddress2);
     }
     else if (!reached_end1 && reached_end2)
@@ -2346,7 +2461,11 @@ int compare_action(char fileaddress1[], char fileaddress2[])
         while (fgets(line1, 2000, f1) != NULL)
             end++;
 
-        printf("<<<<<<<<<<<< #%d - #%d <<<<<<<<<<<<\n", start, end);
+        if (!is_arman)
+            printf("<<<<<<<<<<<< #%d - #%d <<<<<<<<<<<<\n", start, end);
+        else
+            sprintf(arman_result + strlen(arman_result), "<<<<<<<<<<<< #%d - #%d <<<<<<<<<<<<\n", start, end);
+
         strcpy(longer_file_address, fileaddress1);
     }
     fclose(f1);
@@ -2362,11 +2481,15 @@ int compare_action(char fileaddress1[], char fileaddress2[])
         {
             continue;
         }
-
-        printf("%s", line1);
+        if (!is_arman)
+            printf("%s", line1);
+        else
+            sprintf(arman_result + strlen(arman_result), "%s", line1);
     }
-    printf("\n");
-
+    if (!is_arman)
+        printf("\n");
+    else
+        sprintf(arman_result + strlen(arman_result), "\n");
     fclose(longer_file);
     return 0;
 }
@@ -2483,34 +2606,157 @@ int compare_line_print(char line1[], char line2[])
     // different number of words
     if (count_diff != 1 || space_index1[s1 + 1] != -2 || space_index2[s2 + 1] != -2)
     {
-        printf("%s\n", line1);
-        printf("%s\n", line2);
+        if (!is_arman)
+        {
+            printf("%s\n", line1);
+            printf("%s\n", line2);
+        }
+        else
+        {
+            sprintf(arman_result + strlen(arman_result), "%s\n", line1);
+            sprintf(arman_result + strlen(arman_result), "%s\n", line2);
+        }
         return 0;
     }
 
     for (int i = 0; i < strlen(line1); i++)
     {
         if (i == start1)
-            printf(">>");
-        printf("%c", line1[i]);
+        {
+            if (!is_arman)
+                printf(">>");
+            else
+                sprintf(arman_result + strlen(arman_result), ">>");
+        }
+        if (!is_arman)
+            printf("%c", line1[i]);
+        else
+            sprintf(arman_result + strlen(arman_result), "%c", line1[i]);
+
         if (i == end1)
-            printf("<<");
+        {
+            if (!is_arman)
+                printf("<<");
+            else
+                sprintf(arman_result + strlen(arman_result), "<<");
+        }
     }
-    printf("\n");
+    if (!is_arman)
+        printf("\n");
+    else
+        sprintf(arman_result + strlen(arman_result), "\n");
 
     for (int i = 0; i < strlen(line2); i++)
     {
         if (i == start2)
-            printf(">>");
-        printf("%c", line2[i]);
-        if (i == end2)
-            printf("<<");
-    }
-    printf("\n");
+        {
+            if (!is_arman)
+                printf(">>");
+            else
+                sprintf(arman_result + strlen(arman_result), ">>");
+        }
+        if (!is_arman)
+            printf("%c", line2[i]);
+        else
+            sprintf(arman_result + strlen(arman_result), "%c", line2[i]);
 
-    return 0;
+        if (i == end2)
+        {
+            if (!is_arman)
+                printf("<<");
+            else
+                sprintf(arman_result + strlen(arman_result), "<<");
+        }
+    }
+    if (!is_arman)
+        printf("\n");
+    else
+        sprintf(arman_result + strlen(arman_result), "\n");
 }
 
 int arman()
 {
+    is_arman = 1;
+    first_time = 1;
+
+    char command_line[6000];
+    fgets(command_line, 6000, command_file);
+    fclose(command_file);
+    char *command_pos = command_line;
+    char *prev_command_pos = command_line;
+    char command[100];
+
+    while ((command_pos = strstr(prev_command_pos, " =D ")) != NULL)
+    {
+        command_file = fopen(".commandfile", "w");
+        *command_pos = 0;
+        fprintf(command_file, "%s\n", prev_command_pos);
+        fclose(command_file);
+        command_file = fopen(".commandfile", "r");
+        fscanf(command_file, "%s", command);
+        arman_result[0] = 0;
+
+        if (!strcmp(command, "cat"))
+        {
+            cat();
+        }
+        else if (!strcmp(command, "find"))
+        {
+            find();
+        }
+        else if (!strcmp(command, "tree"))
+        {
+            tree();
+        }
+        else if (!strcmp(command, "grep"))
+        {
+            grep();
+        }
+        else if (!strcmp(command, "compare"))
+        {
+            compare();
+        }
+        else
+        {
+            error_msg("invalid input");
+            return -1;
+        }
+        first_time = 0;
+        prev_command_pos = command_pos + 4;
+        strcpy(prev_output, arman_result);
+        fclose(command_file);
+    }
+
+    is_arman = 0;
+
+    command_file = fopen(".commandfile", "w");
+    fprintf(command_file, "%s\n", prev_command_pos);
+    fclose(command_file);
+    command_file = fopen(".commandfile", "r");
+    fscanf(command_file, "%s", command);
+    arman_result[0] = 0;
+    if (!strcmp(command, "insertstr"))
+    {
+        insertstr();
+    }
+    else if (!strcmp(command, "find"))
+    {
+        find();
+    }
+    else if (!strcmp(command, "replace"))
+    {
+        replace();
+    }
+    else if (!strcmp(command, "grep"))
+    {
+        grep();
+    }
+    else
+    {
+        error_msg("invalid input");
+    }
+    fclose(command_file);
+
+    first_time = 1;
+    return 0;
 }
