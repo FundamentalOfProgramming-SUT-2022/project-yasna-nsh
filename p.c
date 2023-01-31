@@ -96,6 +96,11 @@ int grep_search(char fileaddress[], char str[], char opt);
 int undo();
 int undo_action(char fileaddress[]);
 
+int compare();
+int compare_file_input(char fieladdress[]);
+int compare_action(char fileaddress1[], char fileaddress2[]);
+int compare_line_print(char line1[], char line2[]);
+
 int main()
 {
     create_remove_list();
@@ -153,6 +158,10 @@ int main()
         else if (!strcmp(command, "undo"))
         {
             undo();
+        }
+        else if (!strcmp(command, "compare"))
+        {
+            compare();
         }
         else if (!strcmp(command, "exit"))
         {
@@ -279,7 +288,7 @@ void cleanup()
         // reached end of the list
         if (address[0] == '\n')
             break;
-            
+
         // remove the \n from the end
         address[strlen(address) - 1] = 0;
         remove(address);
@@ -2203,6 +2212,292 @@ int undo_action(char fileaddress[])
     fclose(original_file);
     fclose(record_file);
     remove(record_address);
+
+    return 0;
+}
+
+int compare()
+{
+    char fileaddress1[1000], fileaddress2[1000];
+    int valid_file1 = compare_file_input(fileaddress1);
+    int valid_file2 = compare_file_input(fileaddress2);
+    if (valid_file1 == -1 || valid_file2 == -1)
+        return -1;
+
+    int valid_action = compare_action(fileaddress1, fileaddress2);
+    if (valid_action == -1)
+        return -1;
+    return 0;
+}
+
+int compare_file_input(char fileaddress[])
+{
+    char word[1000];
+    scanf("%s", word);
+
+    if (word[0] != '\"')
+    {
+        strcpy(fileaddress, word);
+    }
+    else
+    {
+        for (int i = 1; i < strlen(word); i++)
+        {
+            fileaddress[i - 1] = word[i];
+        }
+
+        int i = strlen(word) - 1;
+        char c;
+        while (1)
+        {
+            c = getchar();
+            if (c == '\"' && fileaddress[i - 1] != '\\')
+                break;
+            fileaddress[i] = c;
+            i++;
+        }
+        fileaddress[i] = 0;
+    }
+
+    // remove the starting \ or /
+    if (fileaddress[0] == '\\' || fileaddress[0] == '/')
+    {
+        for (int i = 1; i < strlen(fileaddress); i++)
+        {
+            fileaddress[i - 1] = fileaddress[i];
+        }
+        fileaddress[strlen(fileaddress) - 1] = 0;
+    }
+
+    FILE *f = fopen(fileaddress, "r");
+    if (f == NULL)
+    {
+        error_msg("this file doesn't exist");
+        clearline();
+        return -1;
+    }
+    else
+    {
+        fclose(f);
+    }
+
+    return 0;
+}
+
+int compare_action(char fileaddress1[], char fileaddress2[])
+{
+    FILE *f1 = fopen(fileaddress1, "r");
+    FILE *f2 = fopen(fileaddress2, "r");
+
+    char line1[2000];
+    char line2[2000];
+    int reached_end1, reached_end2;
+    reached_end1 = reached_end2 = 0;
+    int line_num = 1;
+
+    while (1)
+    {
+        if (fgets(line1, 2000, f1) == NULL)
+            reached_end1 = 1;
+        if (fgets(line2, 2000, f2) == NULL)
+            reached_end2 = 1;
+        if (reached_end1 || reached_end2)
+            break;
+
+        if (line1[strlen(line1) - 1] == '\n')
+            line1[strlen(line1) - 1] = 0;
+        if (line2[strlen(line2) - 1] == '\n')
+            line2[strlen(line2) - 1] = 0;
+
+        if (strcmp(line1, line2))
+        {
+            printf("============ #%d ============\n", line_num);
+            compare_line_print(line1, line2);
+        }
+        line_num++;
+    }
+
+    if (reached_end1 && reached_end2)
+        return 0;
+
+    int start = line_num;
+    int end = line_num;
+    char longer_file_address[1000];
+
+    if (reached_end1 && !reached_end2)
+    {
+        while (fgets(line2, 2000, f2) != NULL)
+            end++;
+
+        printf(">>>>>>>>>>>> #%d - #%d >>>>>>>>>>>>\n", start, end);
+        strcpy(longer_file_address, fileaddress2);
+    }
+    else if (!reached_end1 && reached_end2)
+    {
+        while (fgets(line1, 2000, f1) != NULL)
+            end++;
+
+        printf("<<<<<<<<<<<< #%d - #%d <<<<<<<<<<<<\n", start, end);
+        strcpy(longer_file_address, fileaddress1);
+    }
+    fclose(f1);
+    fclose(f2);
+
+    FILE *longer_file = fopen(longer_file_address, "r");
+    int count = 0;
+
+    while (fgets(line1, 2000, longer_file) != NULL)
+    {
+        count++;
+        if (count < start)
+        {
+            continue;
+        }
+
+        printf("%s", line1);
+    }
+    printf("\n");
+
+    fclose(longer_file);
+    return 0;
+}
+
+int compare_line_print(char line1[], char line2[])
+{
+    int space_index1[1000] = {0};
+    int space_index2[1000] = {0};
+
+    space_index1[0] = -1;
+    int s_index = 1;
+    for (int i = 0; i < strlen(line1); i++)
+    {
+        if (line1[i] == ' ')
+        {
+            space_index1[s_index] = i;
+            s_index++;
+        }
+    }
+    space_index1[s_index] = strlen(line1);
+    space_index1[s_index + 1] = -2;
+
+    space_index2[0] = -1;
+    s_index = 1;
+    for (int i = 0; i < strlen(line2); i++)
+    {
+        if (line2[i] == ' ')
+        {
+            space_index2[s_index] = i;
+            s_index++;
+        }
+    }
+    space_index2[s_index] = strlen(line2);
+    space_index2[s_index + 1] = -2;
+
+    int s1, s2;
+    s1 = s2 = 0;
+    int count_diff = 0;
+    int len1, len2;
+    int equal;
+    int start1, end1, start2, end2;
+    while (space_index1[s1 + 1] != -2 && space_index2[s2 + 1] != -2)
+    {
+        len1 = space_index1[s1 + 1] - space_index1[s1] - 1;
+        len2 = space_index2[s2 + 1] - space_index2[s2] - 1;
+
+        // multiple spaces in a row
+        if (len1 == 0)
+        {
+            s1++;
+            continue;
+        }
+        if (len2 == 0)
+        {
+            s2++;
+            continue;
+        }
+
+        // words have different lengths
+        if (len1 != len2)
+        {
+            count_diff++;
+
+            start1 = space_index1[s1] + 1;
+            end1 = start1 + len1 - 1;
+
+            start2 = space_index2[s2] + 1;
+            end2 = start2 + len2 - 1;
+
+            if (count_diff > 1)
+            {
+                break;
+            }
+            else
+            {
+                s1++;
+                s2++;
+                continue;
+            }
+        }
+
+        equal = 1;
+        for (int i = 1; i <= len1; i++)
+        {
+            if (line1[space_index1[s1] + i] != line2[space_index2[s2] + i])
+            {
+                equal = 0;
+                break;
+            }
+        }
+
+        if (!equal)
+        {
+            count_diff++;
+
+            start1 = space_index1[s1] + 1;
+            end1 = start1 + len1 - 1;
+
+            start2 = space_index2[s2] + 1;
+            end2 = start2 + len2 - 1;
+
+            if (count_diff > 1)
+            {
+                break;
+            }
+        }
+
+        s1++;
+        s2++;
+    }
+
+    // more than one different word (count_diff>1)
+    // only different in number of spaces (count_diff==0)
+    // different number of words
+    if (count_diff != 1 || space_index1[s1 + 1] != -2 || space_index2[s2 + 1] != -2)
+    {
+        printf("%s\n", line1);
+        printf("%s\n", line2);
+        return 0;
+    }
+
+    for (int i = 0; i < strlen(line1); i++)
+    {
+        if (i == start1)
+            printf(">>");
+        printf("%c", line1[i]);
+        if (i == end1)
+            printf("<<");
+    }
+    printf("\n");
+
+    for (int i = 0; i < strlen(line2); i++)
+    {
+        if (i == start2)
+            printf(">>");
+        printf("%c", line2[i]);
+        if (i == end2)
+            printf("<<");
+    }
+    printf("\n");
 
     return 0;
 }
