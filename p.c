@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <direct.h>
 #include <windows.h>
+#include <sys/stat.h>
 
 #define TEMP_FILE_NAME ".tempfile"
 #define CLIPBOARD_FILE_NAME ".clipboard"
@@ -32,6 +33,7 @@ int newline_handle();
 void error_msg(char *message);
 int track_changes(char fileaddress[]);
 void cleanup();
+int dir_exist(char diraddress[]);
 
 int createfile();
 int file_input(char fileaddress[], int caller_id);
@@ -224,6 +226,7 @@ void getcommand(char com[])
     char full_line[6000];
     gets(full_line);
     fprintf(command_file, full_line);
+    fprintf(command_file, "\n");
     fclose(command_file);
 
     command_file = fopen(".commandfile", "r");
@@ -331,6 +334,30 @@ void cleanup()
     remove(".commandfile");
 }
 
+int dir_exist(char fileaddress[])
+{
+    int i;
+    for (i = strlen(fileaddress) - 1; i >= 0; i--)
+    {
+        if (fileaddress[i] == '/' || fileaddress[i] == '\\')
+            break;
+    }
+    if (i < 0)
+    {
+        // no directory
+        return 1;
+    }
+
+    fileaddress[i] = 0;
+    struct stat s;
+    stat(fileaddress, &s);
+    fileaddress[i] = '/';
+
+    if (S_ISDIR(s.st_mode))
+        return 1;
+    return 0;
+}
+
 int createfile()
 {
     char fileaddress[1000];
@@ -412,6 +439,7 @@ int file_input(char fileaddress[], int caller_code)
         }
         fileaddress[strlen(fileaddress) - 1] = 0;
     }
+
     return 0;
 }
 
@@ -515,6 +543,7 @@ int cat()
     int valid_action = cat_action(fileaddress);
     if (valid_action == -1)
     {
+        undo_action(fileaddress);
         return -1;
     }
 
@@ -523,6 +552,14 @@ int cat()
 
 int cat_action(char fileaddress[])
 {
+    // does directory exist
+    if (!dir_exist(fileaddress))
+    {
+        error_msg("directory doesn't exist");
+        return -1;
+    }
+
+    // does file exist
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
     {
@@ -559,7 +596,10 @@ int insertstr()
 
     int valid_action = insertstr_action(fileaddress, str, pos_line, pos_char);
     if (valid_action == -1)
+    {
+        undo_action(fileaddress);
         return -1;
+    }
 
     return 0;
 }
@@ -631,6 +671,14 @@ int file_input_by_word(char fileaddress[])
         fileaddress[strlen(fileaddress) - 1] = 0;
     }
 
+    // does directory exist
+    if (!dir_exist(fileaddress))
+    {
+        error_msg("directory doesn't exist");
+        return -1;
+    }
+
+    // does file exist
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
     {
@@ -702,7 +750,7 @@ int pos_input(int *pos_line_ptr, int *pos_char_ptr)
     }
     if (*pos_char_ptr < 0)
     {
-        error_msg("the start position can't be negative");
+        error_msg("the starting position can't be negative");
         return -1;
     }
 
@@ -837,7 +885,10 @@ int removestr()
 
     int valid_action = removestr_action(fileaddress, pos_line, pos_char, size, direction);
     if (valid_action == -1)
+    {
+        undo_action(fileaddress);
         return -1;
+    }
 
     return 0;
 }
@@ -871,6 +922,11 @@ int size_input(int *size_ptr)
     fscanf(command_file, "%s", word);
 
     fscanf(command_file, "%d", size_ptr);
+    if (*size_ptr <= 0)
+    {
+        error_msg("size should be positive");
+        return -1;
+    }
     return 0;
 }
 
@@ -928,13 +984,33 @@ int removestr_f(char fileaddress[], int pos_line, int pos_char, int size)
     }
 
     int count = 0;
+    char temp;
     while (count < pos_char)
     {
-        fputc(fgetc(original_file), temp_file);
+        temp = fgetc(original_file);
+        if (temp == EOF)
+        {
+            fclose(original_file);
+            fclose(temp_file);
+            remove(TEMP_FILE_NAME);
+            error_msg("this line doesn't have enough characters");
+            return -1;
+        }
+        fputc(temp, temp_file);
         count++;
     }
     for (int i = 0; i < size; i++)
-        fgetc(original_file);
+    {
+        if (fgetc(original_file) == EOF)
+        {
+            fclose(original_file);
+            fclose(temp_file);
+            remove(TEMP_FILE_NAME);
+            error_msg("no changes made");
+            error_msg("couldn't remove this many characters");
+            return -1;
+        }
+    }
 
     // add the rest of original_file to temp_file
     while (fgets(line, 2000, original_file) != NULL)
@@ -965,6 +1041,12 @@ int removestr_b(char fileaddress[], int pos_line, int pos_char, int size)
     if (pos_line == 0)
     {
         fclose(original_file);
+        if (pos_char - size < 0)
+        {
+            error_msg("no changes made");
+            error_msg("couldn't remove this many characters");
+            return -1;
+        }
         return removestr_f(fileaddress, pos_line, pos_char - size, size);
     }
     int char_count[pos_line];
@@ -975,11 +1057,17 @@ int removestr_b(char fileaddress[], int pos_line, int pos_char, int size)
     int i = 0;
     while (i < pos_line)
     {
-        fgets(line, 2000, original_file);
+        if (fgets(line, 2000, original_file) == NULL)
+        {
+            fclose(original_file);
+            error_msg("the file doesn't have this many lines");
+            return -1;
+        }
         char_count[i] += strlen(line);
         if (line[strlen(line) - 1] == '\n')
             i++;
     }
+    fclose(original_file);
 
     long long sum = 0;
     int j;
@@ -990,8 +1078,13 @@ int removestr_b(char fileaddress[], int pos_line, int pos_char, int size)
         sum += char_count[j];
     }
 
+    if (j == -1)
+    {
+        error_msg("no changes made");
+        error_msg("couldn't remove this many characters");
+        return -1;
+    }
     int pos_start = char_count[j] - (size - pos_char - sum);
-    fclose(original_file);
 
     return removestr_f(fileaddress, j, pos_start, size);
 }
@@ -1010,7 +1103,10 @@ int copystr()
 
     int valid_action = copystr_action(fileaddress, pos_line, pos_char, size, direction);
     if (valid_action == -1)
+    {
+        undo_action(fileaddress);
         return -1;
+    }
 
     return 0;
 }
@@ -1134,7 +1230,10 @@ int cutstr()
 
     int valid_action = cutstr_action(fileaddress, pos_line, pos_char, size, direction);
     if (valid_action == -1)
+    {
+        undo_action(fileaddress);
         return -1;
+    }
 
     return 0;
 }
@@ -1166,7 +1265,10 @@ int pastestr()
 
     int valid_action = pastestr_action(fileaddress, pos_line, pos_char);
     if (valid_action == -1)
+    {
+        undo_action(fileaddress);
         return -1;
+    }
 
     return 0;
 }
@@ -1200,7 +1302,6 @@ int pastestr_action(char fileaddress[], int pos_line, int pos_char)
             break;
         if (insertstr_action(fileaddress, line, pos_line, pos_char) == -1)
         {
-            error_msg("unknown error");
             fclose(clipboard);
             return -1;
         }
@@ -1240,8 +1341,12 @@ int find()
     {
         int end_index;
         found = find_action_vanilla(str, fileaddress, at, &end_index);
+        // -2 means error
         if (found == -2)
+        {
+            undo_action(fileaddress);
             return -1;
+        }
         if (!is_arman)
             printf("%d\n", found);
         else
@@ -1255,7 +1360,10 @@ int find()
     {
         found = find_action_byword(str, fileaddress, at);
         if (found == -2)
+        {
+            undo_action(fileaddress);
             return -1;
+        }
 
         if (!is_arman)
             printf("%d\n", found);
@@ -1272,7 +1380,9 @@ int find()
     }
 
     if (found == -1)
-        return -1;
+    {
+        return -2;
+    }
     return 0;
 }
 
@@ -1810,6 +1920,7 @@ int replace()
         if (replace_at(fileaddress, str1, str2, at) == -1)
         {
             error_msg("match not found");
+            undo_action(fileaddress);
             return -1;
         }
         else
@@ -1821,6 +1932,8 @@ int replace()
     else
     {
         int temp = replace_all(fileaddress, str1, str2);
+        if (temp == -1)
+            undo_action(fileaddress);
         return temp;
     }
 }
@@ -2088,11 +2201,11 @@ int grep()
     if (valid_input == -1)
         return -1;
 
-    track_changes(fileaddress);
-
     int valid_action = grep_action(fileaddress, str, opt);
     if (valid_action == -1)
+    {
         return -1;
+    }
 
     return 0;
 }
@@ -2157,7 +2270,7 @@ int grep_input(char str[], char *opt_ptr)
 int grep_get_next_file(char fileaddress[])
 {
     if (fgetc(command_file) == '\n')
-        return -1;
+        return -2;
     char word[1000];
 
     fscanf(command_file, "%s", word);
@@ -2195,6 +2308,14 @@ int grep_get_next_file(char fileaddress[])
         fileaddress[strlen(fileaddress) - 1] = 0;
     }
 
+    // does directory exist
+    if (!dir_exist(fileaddress))
+    {
+        error_msg("directory doesn't exist");
+        return -1;
+    }
+
+    // does file exist
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
     {
@@ -2211,9 +2332,18 @@ int grep_get_next_file(char fileaddress[])
 int grep_action(char fileaddress[], char str[], char opt)
 {
     int count = 0;
-
-    while (grep_get_next_file(fileaddress) != -1)
+    int r;
+    while (1)
     {
+        r = grep_get_next_file(fileaddress);
+        if (r == -2)
+            break;
+        if (r == -1)
+            return -1;
+
+        track_changes(fileaddress);
+        // ADD UNDO IN CASE OF ERROR
+
         count += grep_search(fileaddress, str, opt);
     }
 
@@ -2361,9 +2491,14 @@ int compare()
     if (valid_file1 == -1 || valid_file2 == -1)
         return -1;
 
+    track_changes(fileaddress1);
+    track_changes(fileaddress2);
+
     int valid_action = compare_action(fileaddress1, fileaddress2);
     if (valid_action == -1)
+    {
         return -1;
+    }
     return 0;
 }
 
@@ -2406,6 +2541,14 @@ int compare_file_input(char fileaddress[])
         fileaddress[strlen(fileaddress) - 1] = 0;
     }
 
+    // does directory exist
+    if (!dir_exist(fileaddress))
+    {
+        error_msg("directory doesn't exist");
+        return -1;
+    }
+
+    // does file exist
     FILE *f = fopen(fileaddress, "r");
     if (f == NULL)
     {
@@ -2703,6 +2846,7 @@ int arman()
     char *command_pos = command_line;
     char *prev_command_pos = command_line;
     char command[100];
+    int valid = 0;
 
     while ((command_pos = strstr(prev_command_pos, " =D ")) != NULL)
     {
@@ -2716,27 +2860,36 @@ int arman()
 
         if (!strcmp(command, "cat"))
         {
-            cat();
+            valid = cat();
         }
         else if (!strcmp(command, "find"))
         {
-            find();
+            valid = find();
         }
         else if (!strcmp(command, "tree"))
         {
-            tree();
+            valid = tree();
         }
         else if (!strcmp(command, "grep"))
         {
-            grep();
+            valid = grep();
         }
         else if (!strcmp(command, "compare"))
         {
-            compare();
+            valid = compare();
         }
         else
         {
             error_msg("invalid input");
+            is_arman = 0;
+            first_time = 1;
+            return -1;
+        }
+        if (valid == -1)
+        {
+            fclose(command_file);
+            is_arman = 0;
+            first_time = 1;
             return -1;
         }
         first_time = 0;
@@ -2791,7 +2944,11 @@ int auto_indent()
 
     int valid_action = auto_indent_action(fileaddress);
     if (valid_action == -1)
+    {
+        // unsuccessful action -> remove record from history
+        undo_action(fileaddress);
         return -1;
+    }
 
     return 0;
 }
@@ -2873,7 +3030,7 @@ void process_line(char line[], char pline[])
             temp = next_non_wspace_index(line, l_i);
             if (temp == -1)
                 break;
-            if (line[temp] == '{' || line[temp] == '}' || l_i == 0)
+            if (line[temp] == ';' || line[temp] == '{' || line[temp] == '}' || l_i == 0)
             {
                 l_i = temp;
                 continue;
@@ -2889,7 +3046,7 @@ void process_line(char line[], char pline[])
         else
         {
             pline[p_i] = line[l_i];
-            if (line[l_i] == '{' || line[l_i] == '}')
+            if (line[l_i] == '{' || line[l_i] == '}' || line[l_i] == ';')
             {
                 l_i = next_non_wspace_index(line, l_i + 1);
             }
@@ -2940,19 +3097,9 @@ void indent_line(FILE *f, char str[], int *depth_ptr)
             print_spaces(f, *depth_ptr);
             fprintf(f, "}\n");
         }
-        // else if (str[i] == ';')
-        // {
-        //     if (str[i + 1] != '}')
-        //     {
-        //         fprintf(f, ";\n");
-        //         print_spaces(f, *depth_ptr);
-        //     }
-        //     else
-        //         fprintf(f, ";");
-        // }
         else
         {
-            if (i == 0 || str[i - 1] == '{' || str[i - 1] == '}')
+            if (i == 0 || str[i - 1] == '{' || str[i - 1] == '}' || str[i - 1] == ';')
             {
                 fprintf(f, "\n");
                 print_spaces(f, *depth_ptr);
