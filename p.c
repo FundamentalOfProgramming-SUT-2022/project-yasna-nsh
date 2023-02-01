@@ -23,6 +23,8 @@
 #define RECORD_COUNT_EXT "_UNDO_COUNT"
 #define UNDO_EXT "_UNDO_NO_"
 
+#define TAB_WIDTH 4
+
 void create_remove_file();
 void getcommand(char com[]);
 void end_of_command();
@@ -101,6 +103,14 @@ int compare_file_input(char fieladdress[]);
 int compare_action(char fileaddress1[], char fileaddress2[]);
 int compare_line_print(char line1[], char line2[]);
 
+int auto_indent();
+int auto_indent_action(char fileaddress[]);
+int check_brace_validity(char fileaddress[]);
+void process_line(char line[], char pline[]);
+int next_non_wspace_index(char str[], int i);
+void indent_line(FILE *f, char str[], int *depth_ptr);
+void print_spaces(FILE *f, int depth);
+
 int arman();
 
 FILE *command_file;
@@ -170,6 +180,10 @@ int main()
         else if (!strcmp(command, "compare"))
         {
             compare();
+        }
+        else if (!strcmp(command, "auto-indent"))
+        {
+            auto_indent();
         }
         else if (!strcmp(command, "arman"))
         {
@@ -313,6 +327,7 @@ void cleanup()
     }
     fclose(f);
     remove(RLIST_FILE_NAME);
+    fclose(command_file);
     remove(".commandfile");
 }
 
@@ -366,6 +381,9 @@ int file_input(char fileaddress[], int caller_code)
     }
 
     fgets(fileaddress, 1000, command_file);
+    if (fileaddress[strlen(fileaddress) - 1] == '\n')
+        fileaddress[strlen(fileaddress) - 1] = 0;
+
     if (fileaddress[0] == '\"')
     {
         if (fileaddress[strlen(fileaddress) - 1] != '\"')
@@ -2759,4 +2777,195 @@ int arman()
 
     first_time = 1;
     return 0;
+}
+
+int auto_indent()
+{
+    // auto-indent should start with --file
+    char fileaddress[1000];
+    int valid_input = file_input_by_word(fileaddress);
+    if (valid_input == -1)
+        return -1;
+
+    track_changes(fileaddress);
+
+    int valid_action = auto_indent_action(fileaddress);
+    if (valid_action == -1)
+        return -1;
+
+    return 0;
+}
+
+int auto_indent_action(char fileaddress[])
+{
+    int valid_brace = check_brace_validity(fileaddress);
+    if (valid_brace == -1)
+    {
+        error_msg("closing pairs don't match");
+        return -1;
+    }
+
+    FILE *f = fopen(fileaddress, "r");
+    FILE *temp = fopen(".autoindent", "w");
+    char line[2000];
+    char pline[2000] = {0};
+    int depth = 0;
+    while (fgets(line, 2000, f) != NULL)
+    {
+        process_line(line, pline);
+        indent_line(temp, pline, &depth);
+    }
+    fclose(temp);
+    fclose(f);
+    temp = fopen(".autoindent", "r");
+    f = fopen(fileaddress, "w");
+    while (fgets(line, 2000, temp) != NULL)
+    {
+        // print line if it isn't empty
+        if (next_non_wspace_index(line, 0) != -1)
+            fprintf(f, line);
+    }
+    fclose(f);
+    fclose(temp);
+    remove(".autoindent");
+    return 0;
+}
+
+int check_brace_validity(char fileaddress[])
+{
+    FILE *f = fopen(fileaddress, "r");
+    char line[2000];
+    // { == +1
+    // } == -1
+    int count = 0;
+
+    while (fgets(line, 2000, f) != NULL)
+    {
+        for (int i = 0; i < strlen(line); i++)
+        {
+            if (line[i] == '{')
+                count++;
+            if (line[i] == '}')
+                count--;
+            if (count < 0)
+            {
+                fclose(f);
+                return -1;
+            }
+        }
+    }
+    fclose(f);
+    if (count != 0)
+        return -1;
+    return 0;
+}
+
+void process_line(char line[], char pline[])
+{
+    int p_i, l_i;
+    p_i = l_i = 0;
+    int temp;
+
+    while (l_i < strlen(line))
+    {
+        if (line[l_i] == ' ' || line[l_i] == '\n')
+        {
+            temp = next_non_wspace_index(line, l_i);
+            if (temp == -1)
+                break;
+            if (line[temp] == '{' || line[temp] == '}' || l_i == 0)
+            {
+                l_i = temp;
+                continue;
+            }
+            else
+            {
+                for (; l_i < temp; p_i++, l_i++)
+                {
+                    pline[p_i] = line[l_i];
+                }
+            }
+        }
+        else
+        {
+            pline[p_i] = line[l_i];
+            if (line[l_i] == '{' || line[l_i] == '}')
+            {
+                l_i = next_non_wspace_index(line, l_i + 1);
+            }
+            else
+                l_i++;
+
+            p_i++;
+        }
+    }
+
+    pline[p_i] = 0;
+
+    if (pline[strlen(pline) - 1] == '\n')
+        pline[strlen(pline) - 1] = 0;
+}
+
+int next_non_wspace_index(char str[], int i)
+{
+    for (; i < strlen(str); i++)
+    {
+        if (str[i] != ' ' && str[i] != '\n')
+            return i;
+    }
+
+    return -1;
+}
+
+void indent_line(FILE *f, char str[], int *depth_ptr)
+{
+    for (int i = 0; i < strlen(str); i++)
+    {
+        if (str[i] == '{')
+        {
+            if (i == 0 || str[i - 1] == '{' || str[i - 1] == '}')
+            {
+                print_spaces(f, *depth_ptr);
+                fprintf(f, "{\n");
+            }
+            else
+                fprintf(f, " {\n");
+            (*depth_ptr)++;
+        }
+        else if (str[i] == '}')
+        {
+            if (str[i - 1] != '{' && str[i - 1] != '}')
+                fprintf(f, "\n");
+            (*depth_ptr)--;
+            print_spaces(f, *depth_ptr);
+            fprintf(f, "}\n");
+        }
+        // else if (str[i] == ';')
+        // {
+        //     if (str[i + 1] != '}')
+        //     {
+        //         fprintf(f, ";\n");
+        //         print_spaces(f, *depth_ptr);
+        //     }
+        //     else
+        //         fprintf(f, ";");
+        // }
+        else
+        {
+            if (i == 0 || str[i - 1] == '{' || str[i - 1] == '}')
+            {
+                fprintf(f, "\n");
+                print_spaces(f, *depth_ptr);
+            }
+            fprintf(f, "%c", str[i]);
+        }
+    }
+}
+
+void print_spaces(FILE *f, int depth)
+{
+    for (int i = 0; i < depth * TAB_WIDTH; i++)
+    {
+        fprintf(f, " ");
+    }
 }
