@@ -104,6 +104,7 @@ int find_action_byword(char str[], char fileaddress[], int at);
 int wordnum(char fileaddress[], int pos_char);
 int find_action_all(char str[], char fileaddress[]);
 int find_action_all_byword(char str[], char fileaddress[]);
+int pos_input(int *pos_line_ptr, int *pos_char_ptr);
 
 FILE *command_file;
 char cur_file_path[1000];
@@ -230,6 +231,7 @@ void error_msg(char message[])
 
 int file_input(char fileaddress[])
 {
+    // doesn't expect --file
     char word[1000];
 
     fscanf(command_file, "%s", word);
@@ -1091,29 +1093,68 @@ void command_input()
     }
     else if (!strcmp(command, "auto-indent"))
     {
-        track_changes(fb_name);
-        auto_indent_action(fb_name);
-        refresh_view(first_line_index);
-        if (line_count == 0)
+        if (fgetc(command_file) == '\n')
         {
-            cur_file_line = 0;
-            cur_file_char = 0;
+            track_changes(fb_name);
+            auto_indent_action(fb_name);
+            refresh_view(first_line_index);
+            if (line_count == 0)
+            {
+                cur_file_line = 0;
+                cur_file_char = 0;
+            }
+            else
+            {
+                cur_file_line = line_count - 1;
+                cur_file_char = char_in_line[cur_file_line];
+            }
+
+            // show file's save state
+            if (saved)
+            {
+                wprintw(file_win, "  +");
+                saved = 0;
+                wrefresh(file_win);
+            }
+
+            move_to_pos();
         }
         else
         {
-            cur_file_line = line_count - 1;
-            cur_file_char = char_in_line[cur_file_line];
-        }
+            char fileaddress[1000];
+            file_input(fileaddress);
+            if (!strcmp(fileaddress, cur_file_path))
+            {
+                track_changes(fb_name);
+                auto_indent_action(fb_name);
+                refresh_view(first_line_index);
+                if (line_count == 0)
+                {
+                    cur_file_line = 0;
+                    cur_file_char = 0;
+                }
+                else
+                {
+                    cur_file_line = line_count - 1;
+                    cur_file_char = char_in_line[cur_file_line];
+                }
 
-        // show file's save state
-        if (saved)
-        {
-            wprintw(file_win, "  +");
-            saved = 0;
-            wrefresh(file_win);
-        }
+                // show file's save state
+                if (saved)
+                {
+                    wprintw(file_win, "  +");
+                    saved = 0;
+                    wrefresh(file_win);
+                }
 
-        move_to_pos();
+                move_to_pos();
+            }
+            else
+            {
+                track_changes(fileaddress);
+                auto_indent_action(fileaddress);
+            }
+        }
     }
     else if (!strcmp(command, "replace"))
     {
@@ -1121,14 +1162,48 @@ void command_input()
         replace2();
         refresh_view(first_line_index);
     }
-    // else if (!strcmp(command, "createfile"))
-    // {
-    //     createfile();
-    // }
-    // else if (!strcmp(command, "insertstr"))
-    // {
-    //     insertstr();
-    // }
+    else if (!strcmp(command, "createfile"))
+    {
+        // NO --file BECAUSE OF DOC 2 (BUT THERE IS A --file IN DOC 1)
+        char fileaddress[1000];
+        file_input(fileaddress);
+        createfile_action(fileaddress);
+    }
+    else if (!strcmp(command, "insertstr"))
+    {
+        char word[100];
+
+        char fileaddress[1000];
+        // --file
+        fscanf(command_file, "%s", word);
+        file_input(fileaddress);
+
+        char str[STR_MAX_LENGTH];
+        str_input(str);
+
+        int pos_line, pos_char;
+        pos_input(&pos_line, &pos_char);
+
+        if (!strcmp(fileaddress, cur_file_path))
+        {
+            track_changes(fb_name);
+            insertstr_action(fb_name, str, pos_line, pos_char);
+            // show file's save state
+            if (saved)
+            {
+                wprintw(file_win, "  +");
+                saved = 0;
+                wrefresh(file_win);
+            }
+            refresh_view(first_line_index);
+            move_to_pos();
+        }
+        else
+        {
+            track_changes(fileaddress);
+            insertstr_action(fileaddress, str, pos_line, pos_char);
+        }
+    }
     // else if (!strcmp(command, "cat"))
     // {
     //     cat();
@@ -1411,16 +1486,23 @@ void go_to_next_highlight()
 void replace2()
 {
     // phase 2 replace (no --file)
+    char fileaddress[1000];
     char str1[STR_MAX_LENGTH], str2[STR_MAX_LENGTH];
     str_input(str1);
     str_input(str2);
+    strcpy(fileaddress, fb_name);
+
+    char word[100] = {0};
+    fscanf(command_file, "%s", word);
+    // phase 1 replace -> get file address
+    if (!strcmp(word, "--file"))
+    {
+        file_input(fileaddress);
+        fscanf(command_file, "%s", word);
+    }
 
     // mode
     int mode = 0, at = 1;
-    char c = fgetc(command_file);
-
-    char word[100];
-    fscanf(command_file, "%s", word);
     if (!strcmp(word, "-at"))
     {
         fscanf(command_file, "%d", &at);
@@ -1430,23 +1512,23 @@ void replace2()
         mode = 1;
     }
 
-    track_changes(fb_name);
+    track_changes(fileaddress);
 
     if (mode == 0)
     {
         if (replace_at(fb_name, str1, str2, at) == -1)
         {
             error_msg("match not found");
-            undo_action(fb_name);
+            undo_action(fileaddress);
         }
         refresh_view(first_line_index);
         move_to_pos();
     }
     else
     {
-        int temp = replace_all(fb_name, str1, str2);
+        int temp = replace_all(fileaddress, str1, str2);
         if (temp == -1)
-            undo_action(fb_name);
+            undo_action(fileaddress);
         refresh_view(first_line_index);
         move_to_pos();
     }
@@ -2987,5 +3069,35 @@ int find_action_all_byword(char str[], char fileaddress[])
         printf("%d\n", index[at - 2]);
     else
         sprintf(arman_result + strlen(arman_result), "%d", index[at - 2]);
+    return 0;
+}
+
+int pos_input(int *pos_line_ptr, int *pos_char_ptr)
+{
+    *pos_line_ptr = *pos_char_ptr = -1;
+
+    // first word is --pos
+    char word[100];
+    fscanf(command_file, "%s", word);
+
+    if (fscanf(command_file, "%d:%d", pos_line_ptr, pos_char_ptr) != 2)
+    {
+        error_msg("give the position with this format: --pos <line no>:<start position>");
+        return -1;
+    }
+    if (*pos_line_ptr <= 0)
+    {
+        error_msg("the line number can't be zero or negative");
+        return -1;
+    }
+    if (*pos_char_ptr < 0)
+    {
+        error_msg("the starting position can't be negative");
+        return -1;
+    }
+
+    // make the line number zero-based
+    (*pos_line_ptr)--;
+
     return 0;
 }
