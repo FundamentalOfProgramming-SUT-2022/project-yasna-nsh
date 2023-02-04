@@ -26,6 +26,7 @@
 #define FILE_COLOR 2
 #define COMMAND_COLOR 3
 #define LINE_COLOR 4
+#define HIGH_COLOR 5
 
 #define NORMAL_MODE 0
 #define INSERT_MODE 1
@@ -42,6 +43,7 @@ void show_next_lines();
 void init_env();
 void init_windows();
 void refresh_view();
+void print_highlighted_text(int from_line);
 void normal_input(char c);
 void insert_input(char c);
 void visual_input(char c);
@@ -64,6 +66,7 @@ int open_action(char fileaddress[], int valid_input);
 void close_cur_file();
 void save_cur_file();
 void find_f();
+void go_to_next_highlight();
 void replace2();
 
 // phase 1 functions
@@ -111,6 +114,10 @@ int line_count;
 int saved;
 int first_line_index;
 int start_char_vis, start_line_vis;
+int highlighted_line[1000];
+int highlighted_char[1000];
+int next_highlighted_line, next_highlighted_char, on_h_index;
+int in_hmode = 0;
 
 int is_arman = 0;
 int first_time = 1;
@@ -353,11 +360,13 @@ void init_env()
     keypad(stdscr, true);
     scrollok(text_win, true);
     start_color();
+    init_color(COLOR_GREEN, 180, 234, 162);
     init_pair(TEXT_COLOR, COLOR_WHITE, COLOR_BLACK);
-    init_pair(MODE_COLOR, COLOR_WHITE, COLOR_GREEN);
-    init_pair(FILE_COLOR, COLOR_YELLOW, COLOR_BLACK);
-    init_pair(COMMAND_COLOR, COLOR_BLUE, COLOR_BLACK);
-    init_pair(LINE_COLOR, COLOR_CYAN, COLOR_BLACK);
+    init_pair(MODE_COLOR, COLOR_BLACK, COLOR_GREEN);
+    init_pair(FILE_COLOR, COLOR_GREEN, COLOR_BLACK);
+    init_pair(COMMAND_COLOR, COLOR_GREEN, COLOR_BLACK);
+    init_pair(LINE_COLOR, COLOR_GREEN, COLOR_BLACK);
+    init_pair(HIGH_COLOR, COLOR_WHITE, COLOR_GREEN);
     refresh();
     init_windows();
 
@@ -369,7 +378,6 @@ void init_env()
     line_count = 0;
     char_in_line[0] = 0;
     saved = 0;
-    wprintw(mode_win, "NORMAL");
     wprintw(file_win, "untitled");
     wprintw(file_win, "  +");
     wprintw(line_win, "1 ");
@@ -421,7 +429,52 @@ void refresh_view(int from_line)
             wprintw(text_win, line);
         }
         char_in_line[i] += strlen(line);
-        // IS THIS IF CORRECT?
+        if (line[strlen(line) - 1] == '\n' || feof(f))
+        {
+            i++;
+            char_in_line[i] = 0;
+            if (i > from_line && i < from_line + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT && line[strlen(line) - 1] == '\n')
+                wprintw(line_win, "\n%d", i + 1);
+        }
+    }
+    fclose(f);
+    line_count = i;
+    first_line_index = from_line;
+    wrefresh(line_win);
+    move_to_pos();
+    wrefresh(text_win);
+}
+
+void print_highlighted_text(int from_line)
+{
+    wclear(text_win);
+    FILE *f = fopen(fb_name, "r");
+    char line[1000];
+    int i = 0;
+    int h_count = 0;
+    char_in_line[0] = 0;
+    wclear(line_win);
+    wprintw(line_win, "%d", from_line + 1);
+    while (fgets(line, 1000, f) != NULL)
+    {
+        // stop printing text after reaching border
+        if (i >= from_line && i < from_line + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
+        {
+            for (int j = 0; line[j] != 0; j++)
+            {
+                if (highlighted_char[h_count] == j && highlighted_line[h_count] == i)
+                {
+                    h_count++;
+                    wattron(text_win, COLOR_PAIR(HIGH_COLOR));
+                    wprintw(text_win, "%c", line[j]);
+                    wattroff(text_win, COLOR_PAIR(HIGH_COLOR));
+                }
+                else
+                    wprintw(text_win, "%c", line[j]);
+            }
+            // wprintw(text_win, line);
+        }
+        char_in_line[i] += strlen(line);
         if (line[strlen(line) - 1] == '\n' || feof(f))
         {
             i++;
@@ -440,6 +493,13 @@ void refresh_view(int from_line)
 
 void normal_input(char c)
 {
+    if (c != 'n' && in_hmode)
+    {
+        in_hmode = 0;
+
+        // remove_highlights
+        refresh_view(first_line_index);
+    }
     if (c == 'i') /*insert*/
     {
         set_mode_insert();
@@ -458,6 +518,11 @@ void normal_input(char c)
     else if (c == '/') /*find*/
     {
         find_f();
+        return;
+    }
+    else if (in_hmode && c == 'n')
+    {
+        go_to_next_highlight();
         return;
     }
     else if (c == 'u') /*undo*/
@@ -525,6 +590,8 @@ void normal_input(char c)
     }
     else if (c == 'l')
     {
+        if (line_count == 0)
+            return;
         if ((cur_file_char == char_in_line[cur_file_line] - 1 && cur_file_line != line_count - 1) || (cur_file_line == line_count - 1 && cur_file_char == char_in_line[cur_file_line]))
             return;
         cur_file_char++;
@@ -576,10 +643,56 @@ void insert_input(char c)
             removestr_action(fb_name, cur_file_line, cur_file_char, 1, 'b');
         }
     }
-    else if (c == KEY_UP || c == KEY_DOWN || c == KEY_LEFT || c == KEY_RIGHT)
+    else if (c == 3 || c == 2 || c == 4 || c == 5)
     {
-        // does it automatically change pos?
-        return;
+        // movement
+        // down:2
+        // up: 3
+        // left: 4
+        // right: 5
+
+        if (c == 4)
+        {
+            if (cur_file_char == 0)
+                return;
+            cur_file_char--;
+            move_to_pos();
+            return;
+        }
+        else if (c == 5)
+        {
+            if (line_count == 0)
+                return;
+            if ((cur_file_char == char_in_line[cur_file_line] - 1 && cur_file_line != line_count - 1) || (cur_file_line == line_count - 1 && cur_file_char == char_in_line[cur_file_line]))
+                return;
+            cur_file_char++;
+            move_to_pos();
+            return;
+        }
+        else if (c == 2)
+        {
+            if (cur_file_line == line_count - 1)
+                return;
+            cur_file_line++;
+            if ((cur_file_char >= char_in_line[cur_file_line] && cur_file_line != line_count - 1))
+                cur_file_char = char_in_line[cur_file_line] - 1;
+            else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
+                cur_file_char = char_in_line[cur_file_line];
+            move_to_pos();
+            return;
+        }
+        else if (c == 3)
+        {
+            if (cur_file_line == 0)
+                return;
+            cur_file_line--;
+            if ((cur_file_char >= char_in_line[cur_file_line] && cur_file_line != line_count - 1))
+                cur_file_char = char_in_line[cur_file_line] - 1;
+            else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
+                cur_file_char = char_in_line[cur_file_line];
+            move_to_pos();
+            return;
+        }
     }
     else /*normal keys*/
     {
@@ -1030,29 +1143,79 @@ void save_cur_file()
     }
     fclose(org);
     fclose(file_backup);
+    saved = 1;
 }
 
 // UNFINISHED
 void find_f()
 {
+    in_hmode = 1;
     wmove(command_win, 0, 0);
     wprintw(command_win, "/");
     wrefresh(command_win);
     echo();
-    char command[100];
-    getcommand(command);
-    wclear(command_win);
-    wrefresh(command_win);
-    if (!strcmp(command, "open"))
+    char exp[1000];
+    char word[1000];
+    wscanw(command_win, "%s", word);
+
+    if (word[0] != '\"')
     {
-        // path should start with /root
-        open_f();
+        strcpy(exp, word);
     }
-    end_of_command();
+    else
+    {
+        for (int i = 1; i < strlen(word); i++)
+        {
+            exp[i - 1] = word[i];
+        }
+
+        int i = strlen(word) - 1;
+        char c;
+        while (1)
+        {
+            c = wgetch(command_win);
+            if (c == '\"' && exp[i - 1] != '\\')
+                break;
+            exp[i] = c;
+            i++;
+        }
+        exp[i] = 0;
+    }
+
+    find_action_all(exp, fb_name);
+    print_highlighted_text(first_line_index);
+
+    if (highlighted_line[0] != -1)
+    {
+        if (highlighted_line[on_h_index] == -1)
+        {
+            on_h_index = 0;
+        }
+
+        cur_file_char = highlighted_char[on_h_index];
+        cur_file_line = highlighted_line[on_h_index];
+        move_to_pos();
+    }
+
     wclear(command_win);
     wrefresh(command_win);
     wrefresh(text_win);
     noecho();
+}
+
+void go_to_next_highlight()
+{
+    on_h_index++;
+    if (highlighted_line[on_h_index] == -1)
+    {
+        on_h_index = 0;
+        if (highlighted_line[0] == -1)
+            return;
+    }
+
+    cur_file_char = highlighted_char[on_h_index];
+    cur_file_line = highlighted_line[on_h_index];
+    move_to_pos();
 }
 
 void replace2()
@@ -1509,6 +1672,12 @@ int undo_action(char fileaddress[])
         fprintf(record_count_file, "%d", count - 1);
         SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
         fclose(record_count_file);
+        if (!strcmp(fileaddress, fb_name) && saved)
+        {
+            saved = 0;
+            wprintw(file_win, "  +");
+            wrefresh(file_win);
+        }
     }
 
     // DOESN'T SUPPORT MORE THAN 9999 UNDOS
@@ -2547,16 +2716,33 @@ int find_action_all(char str[], char fileaddress[])
     int index[100] = {0};
     int at;
     int end_index;
+    int found_next_h = 0;
     for (at = 1;; at++)
     {
         index[at - 1] = find_action_vanilla(str, fileaddress, at, &end_index);
         if (index[at - 1] == -1)
+        {
+            highlighted_char[at - 1] = highlighted_line[at - 1] = -1;
             break;
+        }
+        else
+        {
+            pos_to_line_char(index[at - 1], &highlighted_line[at - 1], &highlighted_char[at - 1], fileaddress);
+            if (!found_next_h && index[at - 1] >= line_char_to_pos(cur_file_char, cur_file_line))
+            {
+                found_next_h = 1;
+                on_h_index = at - 1;
+                next_highlighted_char = highlighted_char[at - 1];
+                next_highlighted_line = highlighted_line[at - 1];
+            }
+        }
     }
 
     // no match found
     if (at == 1)
     {
+        highlighted_char[0] = highlighted_line[0] = -1;
+        on_h_index = 0;
         if (!is_arman)
             printf("-1\n");
         else
