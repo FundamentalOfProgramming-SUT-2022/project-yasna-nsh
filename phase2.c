@@ -1206,7 +1206,6 @@ void command_input()
     }
     else if (!strcmp(command, "removestr"))
     {
-
         char word[100];
 
         char fileaddress[1000];
@@ -1249,21 +1248,129 @@ void command_input()
             removestr_action(fileaddress, pos_line, pos_char, size, dir);
         }
     }
+    else if (!strcmp(command, "copystr"))
+    {
+        char word[100];
+
+        char fileaddress[1000];
+        // --file
+        fscanf(command_file, "%s", word);
+        file_input(fileaddress);
+
+        int pos_line, pos_char;
+        pos_input(&pos_line, &pos_char);
+
+        int size;
+        // -size
+        fscanf(command_file, "%s", word);
+        fscanf(command_file, "%d", &size);
+
+        char dir;
+        fscanf(command_file, "%s", word);
+        if (!strcmp(word, "-f"))
+            dir = 'f';
+        else
+            dir = 'b';
+
+        if (!strcmp(fileaddress, cur_file_path))
+        {
+            track_changes(fb_name);
+            copystr_action(fb_name, pos_line, pos_char, size, dir);
+            // show file's save state
+            if (saved)
+            {
+                wprintw(file_win, "  +");
+                saved = 0;
+                wrefresh(file_win);
+            }
+            refresh_view(first_line_index);
+            move_to_pos();
+        }
+        else
+        {
+            track_changes(fileaddress);
+            copystr_action(fileaddress, pos_line, pos_char, size, dir);
+        }
+    }
+    else if (!strcmp(command, "cutstr"))
+    {
+        char word[100];
+
+        char fileaddress[1000];
+        // --file
+        fscanf(command_file, "%s", word);
+        file_input(fileaddress);
+
+        int pos_line, pos_char;
+        pos_input(&pos_line, &pos_char);
+
+        int size;
+        // -size
+        fscanf(command_file, "%s", word);
+        fscanf(command_file, "%d", &size);
+
+        char dir;
+        fscanf(command_file, "%s", word);
+        if (!strcmp(word, "-f"))
+            dir = 'f';
+        else
+            dir = 'b';
+
+        if (!strcmp(fileaddress, cur_file_path))
+        {
+            track_changes(fb_name);
+            cutstr_action(fb_name, pos_line, pos_char, size, dir);
+            // show file's save state
+            if (saved)
+            {
+                wprintw(file_win, "  +");
+                saved = 0;
+                wrefresh(file_win);
+            }
+            refresh_view(first_line_index);
+            move_to_pos();
+        }
+        else
+        {
+            track_changes(fileaddress);
+            cutstr_action(fileaddress, pos_line, pos_char, size, dir);
+        }
+    }
+    else if (!strcmp(command, "pastestr"))
+    {
+        char word[100];
+
+        char fileaddress[1000];
+        // --file
+        fscanf(command_file, "%s", word);
+        file_input(fileaddress);
+
+        int pos_line, pos_char;
+        pos_input(&pos_line, &pos_char);
+
+        if (!strcmp(fileaddress, cur_file_path))
+        {
+            track_changes(fb_name);
+            pastestr_action(fb_name, pos_line, pos_char);
+            // show file's save state
+            if (saved)
+            {
+                wprintw(file_win, "  +");
+                saved = 0;
+                wrefresh(file_win);
+            }
+            refresh_view(first_line_index);
+            move_to_pos();
+        }
+        else
+        {
+            track_changes(fileaddress);
+            pastestr_action(fileaddress, pos_line, pos_char);
+        }
+    }
     // else if (!strcmp(command, "cat"))
     // {
     //     cat();
-    // }
-    // else if (!strcmp(command, "copystr"))
-    // {
-    //     copystr();
-    // }
-    // else if (!strcmp(command, "cutstr"))
-    // {
-    //     cutstr();
-    // }
-    // else if (!strcmp(command, "pastestr"))
-    // {
-    //     pastestr();
     // }
     // else if (!strcmp(command, "find"))
     // {
