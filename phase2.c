@@ -1032,6 +1032,7 @@ void command_input()
         strcpy(fb_name, cur_file_path);
         strcat(fb_name, "_temp");
 
+        createfile_action(cur_file_path);
         rename(fb_name2, fb_name);
         save_cur_file();
         saved = 1;
@@ -1649,7 +1650,7 @@ int createfile_action(char fileaddress[])
     if (f != NULL)
     {
         fclose(f);
-        error_msg("this file already exists");
+        // error_msg("this file already exists");
         return -1;
     }
 
