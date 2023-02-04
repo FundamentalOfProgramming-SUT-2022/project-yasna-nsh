@@ -44,6 +44,7 @@ void init_env();
 void init_windows();
 void refresh_view();
 void print_highlighted_text(int from_line);
+void print_selected_text(int from_line);
 void normal_input(char c);
 void insert_input(char c);
 void visual_input(char c);
@@ -116,6 +117,7 @@ int first_line_index;
 int start_char_vis, start_line_vis;
 int highlighted_line[1000];
 int highlighted_char[1000];
+int highlighted_length[1000];
 int next_highlighted_line, next_highlighted_char, on_h_index;
 int in_hmode = 0;
 
@@ -445,6 +447,7 @@ void refresh_view(int from_line)
     wrefresh(text_win);
 }
 
+// add highlight to more than
 void print_highlighted_text(int from_line)
 {
     wclear(text_win);
@@ -462,9 +465,103 @@ void print_highlighted_text(int from_line)
         {
             for (int j = 0; line[j] != 0; j++)
             {
-                if (highlighted_char[h_count] == j && highlighted_line[h_count] == i)
+                if (j == highlighted_char[h_count] && i == highlighted_line[h_count])
                 {
+                    wattron(text_win, COLOR_PAIR(HIGH_COLOR));
+                    for (; j <= highlighted_char[h_count] + highlighted_length[h_count] - 1; j++)
+                    {
+                        wprintw(text_win, "%c", line[j]);
+                    }
+                    j--;
                     h_count++;
+                    wattroff(text_win, COLOR_PAIR(HIGH_COLOR));
+                }
+                else
+                    wprintw(text_win, "%c", line[j]);
+            }
+            // wprintw(text_win, line);
+        }
+        char_in_line[i] += strlen(line);
+        if (line[strlen(line) - 1] == '\n' || feof(f))
+        {
+            i++;
+            char_in_line[i] = 0;
+            if (i > from_line && i < from_line + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT && line[strlen(line) - 1] == '\n')
+                wprintw(line_win, "\n%d", i + 1);
+        }
+    }
+    fclose(f);
+    line_count = i;
+    first_line_index = from_line;
+    wrefresh(line_win);
+    move_to_pos();
+    wrefresh(text_win);
+}
+
+void print_selected_text(int from_line)
+{
+    wclear(text_win);
+    FILE *f = fopen(fb_name, "r");
+    char line[1000];
+    int i = 0;
+    int h_count = 0;
+    char_in_line[0] = 0;
+
+    int start_line, start_char;
+    int end_line, end_char;
+    if (cur_file_line > start_line_vis)
+    {
+        end_line = cur_file_line;
+        end_char = cur_file_char;
+        start_line = start_line_vis;
+        start_char = start_char_vis;
+    }
+    else if (cur_file_line < start_line_vis)
+    {
+        start_line = cur_file_line;
+        start_char = cur_file_char;
+        end_line = start_line_vis;
+        end_char = start_char_vis;
+    }
+    else
+    {
+        start_line = end_line = cur_file_line;
+        if (start_char_vis < cur_file_char)
+        {
+            start_char = start_char_vis;
+            end_char = cur_file_char;
+        }
+        else
+        {
+            start_char = cur_file_char;
+            end_char = start_char_vis;
+        }
+    }
+
+    wclear(line_win);
+    wprintw(line_win, "%d", from_line + 1);
+    while (fgets(line, 1000, f) != NULL)
+    {
+        // stop printing text after reaching border
+        if (i >= from_line && i < from_line + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
+        {
+            for (int j = 0; line[j] != 0; j++)
+            {
+                if (start_line == end_line)
+                {
+                    if (i == start_line && j >= start_char && j <= end_char)
+                    {
+                        wattron(text_win, COLOR_PAIR(HIGH_COLOR));
+                        wprintw(text_win, "%c", line[j]);
+                        wattroff(text_win, COLOR_PAIR(HIGH_COLOR));
+                    }
+                    else
+                        wprintw(text_win, "%c", line[j]);
+                }
+                else if ((i == start_line && j >= start_char) ||
+                         (i == end_line && j <= end_char) ||
+                         (i > start_line && i < end_line))
+                {
                     wattron(text_win, COLOR_PAIR(HIGH_COLOR));
                     wprintw(text_win, "%c", line[j]);
                     wattroff(text_win, COLOR_PAIR(HIGH_COLOR));
@@ -486,6 +583,7 @@ void print_highlighted_text(int from_line)
     fclose(f);
     line_count = i;
     first_line_index = from_line;
+    wrefresh(text_win);
     wrefresh(line_win);
     move_to_pos();
     wrefresh(text_win);
@@ -520,7 +618,7 @@ void normal_input(char c)
         find_f();
         return;
     }
-    else if (in_hmode && c == 'n')
+    else if (in_hmode && c == 'n') /*next in find*/
     {
         go_to_next_highlight();
         return;
@@ -546,18 +644,46 @@ void normal_input(char c)
         move_to_pos();
         return;
     }
-    else if (c == '=')
+    else if (c == '=') /*auto-indent*/
     {
         track_changes(fb_name);
         auto_indent_action(fb_name);
         refresh_view(first_line_index);
+        if (line_count == 0)
+        {
+            cur_file_line = 0;
+            cur_file_char = 0;
+        }
+        else
+        {
+            cur_file_line = line_count - 1;
+            cur_file_char = char_in_line[cur_file_line];
+        }
+
+        // show file's save state
+        if (saved)
+        {
+            wprintw(file_win, "  +");
+            saved = 0;
+            wrefresh(file_win);
+        }
+
+        move_to_pos();
         return;
     }
-    else if (c == 'p')
+    else if (c == 'p') /*paste*/
     {
         track_changes(fb_name);
         pastestr_action(fb_name, cur_file_line, cur_file_char);
         refresh_view(first_line_index);
+
+        // show file's save state
+        if (saved)
+        {
+            wprintw(file_win, "  +");
+            saved = 0;
+            wrefresh(file_win);
+        }
         return;
     }
     else if (c == 3) /*up arrow*/
@@ -753,6 +879,7 @@ void visual_input(char c)
     if (c == 27) /*ESC*/
     {
         set_mode_normal();
+        refresh_view(first_line_index);
         return;
     }
     else if (c == 'y')
@@ -773,6 +900,7 @@ void visual_input(char c)
             copystr_action(fb_name, start_line_vis, start_char_vis, size, 'f');
         }
         set_mode_normal();
+        refresh_view(first_line_index);
         return;
     }
     else if (c == 'd')
@@ -792,8 +920,8 @@ void visual_input(char c)
             size = pos_end - pos_start + 1;
             cutstr_action(fb_name, start_line_vis, start_char_vis, size, 'f');
         }
-        refresh_view(first_line_index);
         set_mode_normal();
+        refresh_view(first_line_index);
         return;
     }
 
@@ -807,16 +935,12 @@ void visual_input(char c)
         if (cur_file_char == 0)
             return;
         cur_file_char--;
-        move_to_pos();
-        return;
     }
     else if (c == 'l')
     {
         if ((cur_file_char == char_in_line[cur_file_line] - 1 && cur_file_line != line_count - 1) || (cur_file_line == line_count - 1 && cur_file_char == char_in_line[cur_file_line]))
             return;
         cur_file_char++;
-        move_to_pos();
-        return;
     }
     else if (c == 'j')
     {
@@ -827,8 +951,6 @@ void visual_input(char c)
             cur_file_char = char_in_line[cur_file_line] - 1;
         else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
             cur_file_char = char_in_line[cur_file_line];
-        move_to_pos();
-        return;
     }
     else if (c == 'k')
     {
@@ -839,9 +961,9 @@ void visual_input(char c)
             cur_file_char = char_in_line[cur_file_line] - 1;
         else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
             cur_file_char = char_in_line[cur_file_line];
-        move_to_pos();
-        return;
     }
+    move_to_pos();
+    print_selected_text(first_line_index);
 }
 
 void command_input()
@@ -1069,8 +1191,6 @@ int open_action(char fileaddress[], int valid_input)
         saved = 1;
         f = fopen(fileaddress, "r");
         char line[1000];
-        int i = 0;
-        char_in_line[0] = 0;
         while (fgets(line, 1000, f) != NULL)
         {
             fprintf(file_backup, line);
@@ -1146,7 +1266,6 @@ void save_cur_file()
     saved = 1;
 }
 
-// UNFINISHED
 void find_f()
 {
     in_hmode = 1;
@@ -2722,12 +2841,13 @@ int find_action_all(char str[], char fileaddress[])
         index[at - 1] = find_action_vanilla(str, fileaddress, at, &end_index);
         if (index[at - 1] == -1)
         {
-            highlighted_char[at - 1] = highlighted_line[at - 1] = -1;
+            highlighted_char[at - 1] = highlighted_line[at - 1] = highlighted_length[at - 1] = -1;
             break;
         }
         else
         {
             pos_to_line_char(index[at - 1], &highlighted_line[at - 1], &highlighted_char[at - 1], fileaddress);
+            highlighted_length[at - 1] = end_index - index[at - 1] + 1;
             if (!found_next_h && index[at - 1] >= line_char_to_pos(cur_file_char, cur_file_line))
             {
                 found_next_h = 1;
@@ -2741,7 +2861,7 @@ int find_action_all(char str[], char fileaddress[])
     // no match found
     if (at == 1)
     {
-        highlighted_char[0] = highlighted_line[0] = -1;
+        highlighted_char[0] = highlighted_line[0] = highlighted_length[0] = -1;
         on_h_index = 0;
         if (!is_arman)
             printf("-1\n");
