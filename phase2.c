@@ -1043,7 +1043,40 @@ void command_input()
     else if (!strcmp(command, "undo"))
     {
         undo_action(fb_name);
+        // show file's save state
+        if (saved)
+        {
+            wprintw(file_win, "  +");
+            saved = 0;
+            wrefresh(file_win);
+        }
         refresh_view(first_line_index);
+    }
+    else if (!strcmp(command, "auto-indent"))
+    {
+        track_changes(fb_name);
+        auto_indent_action(fb_name);
+        refresh_view(first_line_index);
+        if (line_count == 0)
+        {
+            cur_file_line = 0;
+            cur_file_char = 0;
+        }
+        else
+        {
+            cur_file_line = line_count - 1;
+            cur_file_char = char_in_line[cur_file_line];
+        }
+
+        // show file's save state
+        if (saved)
+        {
+            wprintw(file_win, "  +");
+            saved = 0;
+            wrefresh(file_win);
+        }
+
+        move_to_pos();
     }
     else if (!strcmp(command, "replace"))
     {
