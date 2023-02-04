@@ -33,6 +33,7 @@
 
 void init_env();
 void init_windows();
+void refresh_view();
 void normal_input(char c);
 void insert_input(char c);
 void command_input();
@@ -44,7 +45,6 @@ int file_input(char fileaddress[]);
 int dir_exist(char fileaddress[]);
 void create_remove_file();
 void add_to_rlist(char fileaddress[]);
-int track_changes(char fileaddress[]);
 void end_of_command();
 
 // phase 2 command functions
@@ -61,9 +61,18 @@ int removestr_b(char fileaddress[], int pos_line, int pos_char, int size);
 int create_file_input(char fileaddress[]);
 int makepath(char fileaddress[]);
 int createfile_action(char fileaddress[]);
+int undo_action(char fileaddress[]);
+int track_changes(char fileaddress[]);
+int auto_indent_action(char fileaddress[]);
+int check_brace_validity(char fileaddress[]);
+void process_line(char line[], char pline[]);
+int next_non_wspace_index(char str[], int i);
+void indent_line(FILE *f, char str[], int *depth_ptr);
+void print_spaces(FILE *f, int depth);
 
 FILE *command_file;
 char cur_file_path[1000];
+char fb_name[1000];
 int cur_file_line, cur_file_char;
 // files with more than 6000 lines?
 int char_in_line[6000] = {0};
@@ -253,63 +262,6 @@ void add_to_rlist(char fileaddress[])
     fclose(f);
 }
 
-int track_changes(char fileaddress[])
-{
-    char record_count_address[1000];
-    strcpy(record_count_address, fileaddress);
-    strcat(record_count_address, RECORD_COUNT_EXT);
-
-    // make file if it doesn't exist
-    FILE *record_count_file = fopen(record_count_address, "r");
-
-    int count;
-    if (record_count_file == NULL)
-    {
-        record_count_file = fopen(record_count_address, "w");
-        fprintf(record_count_file, "1");
-        count = 1;
-        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
-        fclose(record_count_file);
-        add_to_rlist(record_count_address);
-    }
-    else
-    {
-        fscanf(record_count_file, "%d", &count);
-        count++;
-        fclose(record_count_file);
-        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_NORMAL);
-        record_count_file = fopen(record_count_address, "w");
-        fprintf(record_count_file, "%d", count);
-        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
-        fclose(record_count_file);
-    }
-
-    // DOESN'T SUPPORT MORE THAN 9999 UNDOS
-    char num_str[5];
-    sprintf(num_str, "%d", count);
-
-    char new_record_address[1000];
-    strcpy(new_record_address, fileaddress);
-    strcat(new_record_address, UNDO_EXT);
-    strcat(new_record_address, num_str);
-    FILE *new_record_file = fopen(new_record_address, "w");
-
-    FILE *original_file = fopen(fileaddress, "r");
-
-    char line[2000];
-    while (fgets(line, 2000, original_file) != NULL)
-    {
-        fprintf(new_record_file, line);
-    }
-
-    fclose(original_file);
-    SetFileAttributesA(new_record_address, FILE_ATTRIBUTE_HIDDEN);
-    fclose(new_record_file);
-    add_to_rlist(new_record_address);
-
-    return 0;
-}
-
 void init_env()
 {
     initscr();
@@ -328,6 +280,7 @@ void init_env()
     FILE *file_backup = fopen("untitled_temp", "w");
     fclose(file_backup);
     strcpy(cur_file_path, "untitled");
+    strcpy(fb_name, "untitled_temp");
     cur_file_line = cur_file_char = 0;
     line_count = 0;
     char_in_line[0] = 0;
@@ -365,16 +318,69 @@ void init_windows()
     set_mode_normal();
 }
 
+void refresh_view()
+{
+    // print edited text again to prevent overwrite and update line and char count
+    wclear(text_win);
+    FILE *f = fopen(fb_name, "r");
+    char line[1000];
+    int i = 0;
+    char_in_line[0] = 0;
+    wclear(line_win);
+    wprintw(line_win, "1");
+    while (fgets(line, 1000, f) != NULL)
+    {
+        // stop printing text after reaching border
+        if (i < LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
+        {
+            wprintw(text_win, line);
+        }
+        char_in_line[i] += strlen(line);
+        // IS THIS IF CORRECT?
+        if (line[strlen(line) - 1] == '\n' || feof(f))
+        {
+            i++;
+            if (line[strlen(line) - 1] == '\n')
+                wprintw(line_win, "\n%d", i + 1);
+            char_in_line[i] = 0;
+        }
+    }
+    fclose(f);
+    line_count = i;
+    wrefresh(line_win);
+    wrefresh(text_win);
+}
+
 void normal_input(char c)
 {
-    if (c == 'i')
+    if (c == 'i') /*insert*/
     {
         set_mode_insert();
         return;
     }
-    else if (c == ':')
+    else if (c == 'v') /*visual*/
+    {
+        return;
+    }
+    else if (c == ':') /*command*/
     {
         command_input();
+        return;
+    }
+    else if (c == '/') /*find*/
+    {
+        return;
+    }
+    else if (c == 'u') /*undo*/
+    {
+        undo_action(fb_name);
+        refresh_view();
+        return;
+    }
+    else if (c == '=')
+    {
+        auto_indent_action(fb_name);
+        refresh_view();
         return;
     }
     else if (c == KEY_UP)
@@ -443,17 +449,14 @@ void normal_input(char c)
 
 void insert_input(char c)
 {
-    char fb_name[1000];
     // special chars
     if (c == 27) /*ESC*/
     {
         set_mode_normal();
         return;
     }
-    else if (c == 8) /*BACKSPACE*/
+    if (c == 8) /*BACKSPACE*/
     {
-        strcpy(fb_name, cur_file_path);
-        strcat(fb_name, "_temp");
         if (cur_file_line != 0 && cur_file_char == 0)
         {
             removestr_action(fb_name, cur_file_line, cur_file_char, 1, 'b');
@@ -462,11 +465,6 @@ void insert_input(char c)
         {
             removestr_action(fb_name, cur_file_line, cur_file_char, 1, 'b');
         }
-    }
-    else if (c == KEY_EXIT)
-    {
-        // ?
-        return;
     }
     else if (c == KEY_UP || c == KEY_DOWN || c == KEY_LEFT || c == KEY_RIGHT)
     {
@@ -479,8 +477,6 @@ void insert_input(char c)
         char temp[2];
         temp[0] = c;
         temp[1] = 0;
-        strcpy(fb_name, cur_file_path);
-        strcat(fb_name, "_temp");
         if (cur_file_line != 0 && char_in_line[cur_file_line] == 0)
         {
             insertstr_action(fb_name, temp, cur_file_line - 1, char_in_line[cur_file_line - 1]);
@@ -496,35 +492,7 @@ void insert_input(char c)
         saved = 0;
         wrefresh(file_win);
     }
-
-    // print edited text again to prevent overwrite and update line and char count
-    wclear(text_win);
-    FILE *f = fopen(fb_name, "r");
-    char line[1000];
-    int i = 0;
-    char_in_line[0] = 0;
-    wclear(line_win);
-    wprintw(line_win, "1");
-    while (fgets(line, 1000, f) != NULL)
-    {
-        // stop printing text after reaching border
-        if (i < LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
-        {
-            wprintw(text_win, line);
-        }
-        char_in_line[i] += strlen(line);
-        // IS THIS IF CORRECT?
-        if (line[strlen(line) - 1] == '\n' || feof(f))
-        {
-            i++;
-            if (line[strlen(line) - 1] == '\n')
-                wprintw(line_win, "\n%d", i + 1);
-            char_in_line[i] = 0;
-        }
-    }
-    fclose(f);
-    line_count = i;
-    wrefresh(line_win);
+    refresh_view();
     if (c == 8)
     {
         if (cur_file_line != 0 && cur_file_char == 0)
@@ -551,8 +519,6 @@ void insert_input(char c)
     }
 
     wmove(text_win, cur_file_line, cur_file_char);
-    // cur_file_line = getcury(text_win);
-    // cur_file_char = getcurx(text_win);
     wrefresh(text_win);
 }
 
@@ -592,8 +558,6 @@ void command_input()
             }
             fclose(org);
             fclose(file_backup);
-
-            char fb_name[1000];
             strcpy(fb_name, cur_file_path);
             strcat(fb_name, "_temp");
             rename("untitled_temp", fb_name);
@@ -611,21 +575,28 @@ void command_input()
     {
         char fileaddress[1000];
         file_input(fileaddress);
-        char fb_name[1000];
-        strcpy(fb_name, cur_file_path);
-        strcat(fb_name, "_temp");
-
-        strcpy(cur_file_path, fileaddress);
         char fb_name2[1000];
+
+        // keep previous backup's name
         strcpy(fb_name2, cur_file_path);
         strcat(fb_name2, "_temp");
 
-        rename(fb_name, fb_name2);
+        strcpy(cur_file_path, fileaddress);
+
+        strcpy(fb_name, cur_file_path);
+        strcat(fb_name, "_temp");
+
+        rename(fb_name2, fb_name);
         save_cur_file();
         saved = 1;
         wclear(file_win);
         wprintw(file_win, cur_file_path);
         wrefresh(file_win);
+    }
+    else if (!strcmp(command, "undo"))
+    {
+        undo_action(fb_name);
+        refresh_view();
     }
     // else if (!strcmp(command, "createfile"))
     // {
@@ -671,10 +642,6 @@ void command_input()
     // {
     //     grep();
     // }
-    // else if (!strcmp(command, "undo"))
-    // {
-    //     undo();
-    // }
     // else if (!strcmp(command, "compare"))
     // {
     //     compare();
@@ -691,6 +658,8 @@ void command_input()
     {
         close_cur_file();
         cleanup();
+        endwin();
+        exit(0);
     }
     end_of_command();
     wclear(command_win);
@@ -723,9 +692,10 @@ void set_mode_insert()
         cur_file_char = cur_file_line = 0;
     }
     wrefresh(text_win);
+    track_changes(fb_name);
 }
 
-// command functions
+// phase 2 command functions
 int open_f()
 {
     char fileaddress[1000];
@@ -740,7 +710,6 @@ int open_action(char fileaddress[], int valid_input)
     close_cur_file();
     strcpy(cur_file_path, fileaddress);
     FILE *f;
-    char fb_name[1000];
     strcpy(fb_name, fileaddress);
     strcat(fb_name, "_temp");
     FILE *file_backup = fopen(fb_name, "w");
@@ -824,17 +793,11 @@ void close_cur_file()
             save_cur_file();
         }
     }
-    char fb_name[1000];
-    strcpy(fb_name, cur_file_path);
-    strcat(fb_name, "_temp");
     remove(fb_name);
 }
 
 void save_cur_file()
 {
-    char fb_name[1000];
-    strcpy(fb_name, cur_file_path);
-    strcat(fb_name, "_temp");
     FILE *file_backup = fopen(fb_name, "r");
     FILE *org = fopen(cur_file_path, "w");
     char line[1000];
@@ -846,6 +809,7 @@ void save_cur_file()
     fclose(file_backup);
 }
 
+// phase 1 funcitons
 int insertstr_action(char fileaddress[], char str[], int pos_line, int pos_char)
 {
     FILE *original_file = fopen(fileaddress, "r");
@@ -1221,4 +1185,283 @@ int create_file_input(char fileaddress[])
     }
 
     return 0;
+}
+
+int undo_action(char fileaddress[])
+{
+    char record_count_address[1000];
+    strcpy(record_count_address, fileaddress);
+    strcat(record_count_address, RECORD_COUNT_EXT);
+
+    // make file if it doesn't exist
+    FILE *record_count_file = fopen(record_count_address, "r");
+
+    int count;
+    if (record_count_file == NULL)
+    {
+        error_msg("history not found");
+        return -1;
+    }
+    else
+    {
+        // get and adjust the number of records
+        fscanf(record_count_file, "%d", &count);
+        if (count == 0)
+        {
+            error_msg("history not found");
+            SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+            fclose(record_count_file);
+            return -1;
+        }
+        fclose(record_count_file);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_NORMAL);
+        record_count_file = fopen(record_count_address, "w");
+        fprintf(record_count_file, "%d", count - 1);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+        fclose(record_count_file);
+    }
+
+    // DOESN'T SUPPORT MORE THAN 9999 UNDOS
+    char num_str[5];
+    sprintf(num_str, "%d", count);
+
+    char record_address[1000];
+    strcpy(record_address, fileaddress);
+    strcat(record_address, UNDO_EXT);
+    strcat(record_address, num_str);
+    FILE *record_file = fopen(record_address, "r");
+    FILE *original_file = fopen(fileaddress, "w");
+
+    char line[2000];
+    while (fgets(line, 2000, record_file) != NULL)
+    {
+        fprintf(original_file, line);
+    }
+
+    fclose(original_file);
+    fclose(record_file);
+    remove(record_address);
+
+    return 0;
+}
+
+int track_changes(char fileaddress[])
+{
+    char record_count_address[1000];
+    strcpy(record_count_address, fileaddress);
+    strcat(record_count_address, RECORD_COUNT_EXT);
+
+    // make file if it doesn't exist
+    FILE *record_count_file = fopen(record_count_address, "r");
+
+    int count;
+    if (record_count_file == NULL)
+    {
+        record_count_file = fopen(record_count_address, "w");
+        fprintf(record_count_file, "1");
+        count = 1;
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+        fclose(record_count_file);
+        add_to_rlist(record_count_address);
+    }
+    else
+    {
+        fscanf(record_count_file, "%d", &count);
+        count++;
+        fclose(record_count_file);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_NORMAL);
+        record_count_file = fopen(record_count_address, "w");
+        fprintf(record_count_file, "%d", count);
+        SetFileAttributesA(record_count_address, FILE_ATTRIBUTE_HIDDEN);
+        fclose(record_count_file);
+    }
+
+    // DOESN'T SUPPORT MORE THAN 9999 UNDOS
+    char num_str[5];
+    sprintf(num_str, "%d", count);
+
+    char new_record_address[1000];
+    strcpy(new_record_address, fileaddress);
+    strcat(new_record_address, UNDO_EXT);
+    strcat(new_record_address, num_str);
+    FILE *new_record_file = fopen(new_record_address, "w");
+
+    FILE *original_file = fopen(fileaddress, "r");
+
+    char line[2000];
+    while (fgets(line, 2000, original_file) != NULL)
+    {
+        fprintf(new_record_file, line);
+    }
+
+    fclose(original_file);
+    SetFileAttributesA(new_record_address, FILE_ATTRIBUTE_HIDDEN);
+    fclose(new_record_file);
+    add_to_rlist(new_record_address);
+
+    return 0;
+}
+
+int auto_indent_action(char fileaddress[])
+{
+    int valid_brace = check_brace_validity(fileaddress);
+    if (valid_brace == -1)
+    {
+        error_msg("closing pairs don't match");
+        return -1;
+    }
+
+    FILE *f = fopen(fileaddress, "r");
+    FILE *temp = fopen(".autoindent", "w");
+    char line[2000];
+    char pline[2000] = {0};
+    int depth = 0;
+    while (fgets(line, 2000, f) != NULL)
+    {
+        process_line(line, pline);
+        indent_line(temp, pline, &depth);
+    }
+    fclose(temp);
+    fclose(f);
+    temp = fopen(".autoindent", "r");
+    f = fopen(fileaddress, "w");
+    while (fgets(line, 2000, temp) != NULL)
+    {
+        // print line if it isn't empty
+        if (next_non_wspace_index(line, 0) != -1)
+            fprintf(f, line);
+    }
+    fclose(f);
+    fclose(temp);
+    remove(".autoindent");
+    return 0;
+}
+
+int check_brace_validity(char fileaddress[])
+{
+    FILE *f = fopen(fileaddress, "r");
+    char line[2000];
+    // { == +1
+    // } == -1
+    int count = 0;
+
+    while (fgets(line, 2000, f) != NULL)
+    {
+        for (int i = 0; i < strlen(line); i++)
+        {
+            if (line[i] == '{')
+                count++;
+            if (line[i] == '}')
+                count--;
+            if (count < 0)
+            {
+                fclose(f);
+                return -1;
+            }
+        }
+    }
+    fclose(f);
+    if (count != 0)
+        return -1;
+    return 0;
+}
+
+void process_line(char line[], char pline[])
+{
+    int p_i, l_i;
+    p_i = l_i = 0;
+    int temp;
+
+    while (l_i < strlen(line))
+    {
+        if (line[l_i] == ' ' || line[l_i] == '\n')
+        {
+            temp = next_non_wspace_index(line, l_i);
+            if (temp == -1)
+                break;
+            if (line[temp] == ';' || line[temp] == '{' || line[temp] == '}' || l_i == 0)
+            {
+                l_i = temp;
+                continue;
+            }
+            else
+            {
+                for (; l_i < temp; p_i++, l_i++)
+                {
+                    pline[p_i] = line[l_i];
+                }
+            }
+        }
+        else
+        {
+            pline[p_i] = line[l_i];
+            if (line[l_i] == '{' || line[l_i] == '}' || line[l_i] == ';')
+            {
+                l_i = next_non_wspace_index(line, l_i + 1);
+            }
+            else
+                l_i++;
+
+            p_i++;
+        }
+    }
+
+    pline[p_i] = 0;
+
+    if (pline[strlen(pline) - 1] == '\n')
+        pline[strlen(pline) - 1] = 0;
+}
+
+int next_non_wspace_index(char str[], int i)
+{
+    for (; i < strlen(str); i++)
+    {
+        if (str[i] != ' ' && str[i] != '\n')
+            return i;
+    }
+
+    return -1;
+}
+
+void indent_line(FILE *f, char str[], int *depth_ptr)
+{
+    for (int i = 0; i < strlen(str); i++)
+    {
+        if (str[i] == '{')
+        {
+            if (i == 0 || str[i - 1] == '{' || str[i - 1] == '}')
+            {
+                print_spaces(f, *depth_ptr);
+                fprintf(f, "{\n");
+            }
+            else
+                fprintf(f, " {\n");
+            (*depth_ptr)++;
+        }
+        else if (str[i] == '}')
+        {
+            if (str[i - 1] != '{' && str[i - 1] != '}')
+                fprintf(f, "\n");
+            (*depth_ptr)--;
+            print_spaces(f, *depth_ptr);
+            fprintf(f, "}\n");
+        }
+        else
+        {
+            if (i == 0 || str[i - 1] == '{' || str[i - 1] == '}' || str[i - 1] == ';')
+            {
+                fprintf(f, "\n");
+                print_spaces(f, *depth_ptr);
+            }
+            fprintf(f, "%c", str[i]);
+        }
+    }
+}
+
+void print_spaces(FILE *f, int depth)
+{
+    for (int i = 0; i < depth * TAB_WIDTH; i++)
+    {
+        fprintf(f, " ");
+    }
 }
