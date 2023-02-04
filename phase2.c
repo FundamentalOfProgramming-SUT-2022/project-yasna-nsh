@@ -39,9 +39,12 @@ void init_windows();
 void refresh_view();
 void normal_input(char c);
 void insert_input(char c);
+void visual_input(char c);
 void command_input();
 void set_mode_normal();
 void set_mode_insert();
+void set_mode_visual();
+int line_char_to_pos(int cur_char, int cur_line);
 void getcommand(char com[]);
 void error_msg(char message[]);
 int file_input(char fileaddress[]);
@@ -72,6 +75,11 @@ void process_line(char line[], char pline[]);
 int next_non_wspace_index(char str[], int i);
 void indent_line(FILE *f, char str[], int *depth_ptr);
 void print_spaces(FILE *f, int depth);
+int copystr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction);
+int copystr_f(char fileaddress[], int pos_line, int pos_char, int size);
+int copystr_b(char fileaddress[], int pos_line, int pos_char, int size);
+int cutstr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction);
+int pastestr_action(char fileaddress[], int pos_line, int pos_char);
 
 FILE *command_file;
 char cur_file_path[1000];
@@ -82,6 +90,7 @@ int char_in_line[6000] = {0};
 int line_count;
 int saved;
 int first_line_index;
+int start_char_vis, start_line_vis;
 
 int is_arman = 0;
 int first_time = 1;
@@ -110,6 +119,11 @@ int main()
         {
             c = getch();
             insert_input(c);
+        }
+        else if (mode == VISUAL_MODE)
+        {
+            c = getch();
+            visual_input(c);
         }
     }
     endwin();
@@ -178,10 +192,12 @@ void getcommand(char com[])
 
 void error_msg(char message[])
 {
-    wclear(command_win);
-    wprintw(command_win, message);
-    wrefresh(text_win);
-    napms(2000);
+    // wclear(command_win);
+    // wprintw(command_win, message);
+    // wrefresh(text_win);
+    // napms(2000);
+
+    printf(message);
 }
 
 int file_input(char fileaddress[])
@@ -399,6 +415,7 @@ void refresh_view(int from_line)
     line_count = i;
     first_line_index = from_line;
     wrefresh(line_win);
+    move_to_pos();
     wrefresh(text_win);
 }
 
@@ -411,6 +428,7 @@ void normal_input(char c)
     }
     else if (c == 'v') /*visual*/
     {
+        set_mode_visual();
         return;
     }
     else if (c == ':') /*command*/
@@ -430,18 +448,26 @@ void normal_input(char c)
     }
     else if (c == '=')
     {
+        track_changes(fb_name);
         auto_indent_action(fb_name);
         refresh_view(first_line_index);
         return;
     }
-    else if (c == 3)
+    else if (c == 'p')
+    {
+        track_changes(fb_name);
+        pastestr_action(fb_name, cur_file_line, cur_file_char);
+        refresh_view(first_line_index);
+        return;
+    }
+    else if (c == 3) /*up arrow*/
     {
         if (cur_file_line < first_line_index + 4)
             show_prev_lines();
         move_to_pos();
         return;
     }
-    else if (c == 2)
+    else if (c == 2) /*down arrow*/
     {
         if (cur_file_line > first_line_index + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT - 5)
             show_next_lines();
@@ -571,6 +597,103 @@ void insert_input(char c)
 
     move_to_pos();
     wrefresh(text_win);
+}
+
+void visual_input(char c)
+{
+
+    if (c == 27) /*ESC*/
+    {
+        set_mode_normal();
+        return;
+    }
+    else if (c == 'y')
+    {
+        track_changes(fb_name);
+
+        int pos_start = line_char_to_pos(start_char_vis, start_line_vis);
+        int pos_end = line_char_to_pos(cur_file_char, cur_file_line);
+        int size;
+        if (pos_start > pos_end)
+        {
+            size = pos_start - pos_end + 1;
+            copystr_action(fb_name, cur_file_line, cur_file_char, size, 'f');
+        }
+        else
+        {
+            size = pos_end - pos_start + 1;
+            copystr_action(fb_name, start_line_vis, start_char_vis, size, 'f');
+        }
+        set_mode_normal();
+        return;
+    }
+    else if (c == 'd')
+    {
+        track_changes(fb_name);
+
+        int pos_start = line_char_to_pos(start_char_vis, start_line_vis);
+        int pos_end = line_char_to_pos(cur_file_char, cur_file_line);
+        int size;
+        if (pos_start > pos_end)
+        {
+            size = pos_start - pos_end + 1;
+            cutstr_action(fb_name, cur_file_line, cur_file_char, size, 'f');
+        }
+        else
+        {
+            size = pos_end - pos_start + 1;
+            cutstr_action(fb_name, start_line_vis, start_char_vis, size, 'f');
+        }
+        refresh_view(first_line_index);
+        set_mode_normal();
+        return;
+    }
+
+    // selection
+    // h: left
+    // l: right
+    // j:down
+    // k:up
+    if (c == 'h')
+    {
+        if (cur_file_char == 0)
+            return;
+        cur_file_char--;
+        move_to_pos();
+        return;
+    }
+    else if (c == 'l')
+    {
+        if ((cur_file_char == char_in_line[cur_file_line] - 1 && cur_file_line != line_count - 1) || (cur_file_line == line_count - 1 && cur_file_char == char_in_line[cur_file_line]))
+            return;
+        cur_file_char++;
+        move_to_pos();
+        return;
+    }
+    else if (c == 'j')
+    {
+        if (cur_file_line == line_count - 1)
+            return;
+        cur_file_line++;
+        if ((cur_file_char >= char_in_line[cur_file_line] && cur_file_line != line_count - 1))
+            cur_file_char = char_in_line[cur_file_line] - 1;
+        else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
+            cur_file_char = char_in_line[cur_file_line];
+        move_to_pos();
+        return;
+    }
+    else if (c == 'k')
+    {
+        if (cur_file_line == 0)
+            return;
+        cur_file_line--;
+        if ((cur_file_char >= char_in_line[cur_file_line] && cur_file_line != line_count - 1))
+            cur_file_char = char_in_line[cur_file_line] - 1;
+        else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
+            cur_file_char = char_in_line[cur_file_line];
+        move_to_pos();
+        return;
+    }
 }
 
 void command_input()
@@ -743,6 +866,27 @@ void set_mode_insert()
     }
     wrefresh(text_win);
     track_changes(fb_name);
+}
+
+void set_mode_visual()
+{
+    mode = VISUAL_MODE;
+    wclear(mode_win);
+    wprintw(mode_win, "VISUAL");
+    wrefresh(mode_win);
+    wrefresh(text_win);
+    start_char_vis = cur_file_char;
+    start_line_vis = cur_file_line;
+}
+
+int line_char_to_pos(int cur_char, int cur_line)
+{
+    // check logic
+    int pos = 0;
+    for (int i = 0; i < cur_line; i++)
+        pos += char_in_line[i];
+    pos += cur_char;
+    return pos;
 }
 
 // phase 2 command functions
@@ -1502,4 +1646,146 @@ void print_spaces(FILE *f, int depth)
     {
         fprintf(f, " ");
     }
+}
+
+int copystr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction)
+{
+    if (direction == 'f')
+        return copystr_f(fileaddress, pos_line, pos_char, size);
+    else
+        return copystr_b(fileaddress, pos_line, pos_char, size);
+}
+
+int copystr_f(char fileaddress[], int pos_line, int pos_char, int size)
+{
+    FILE *original_file = fopen(fileaddress, "r");
+    SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_NORMAL);
+    FILE *clipboard = fopen(CLIPBOARD_FILE_NAME, "w");
+
+    char line[2000];
+    line[0] = 0;
+    int cur_line = 0;
+    while (cur_line < pos_line)
+    {
+        if (fgets(line, 2000, original_file) == NULL)
+        {
+            error_msg("the file doesn't have this many lines");
+            fclose(original_file);
+            fclose(clipboard);
+            SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
+            return -1;
+        }
+
+        // if reached end of a line (since lines can be longer than 2000 characters)
+        if (line[strlen(line) - 1] == 10)
+            cur_line++;
+    }
+
+    int count = 0;
+    while (count < pos_char)
+    {
+        fgetc(original_file);
+        count++;
+    }
+
+    char temp;
+    for (int i = 0; i < size; i++)
+    {
+        temp = fgetc(original_file);
+        if (temp == EOF)
+        {
+            error_msg("this line doesn't have enough characters");
+            fclose(original_file);
+            fclose(clipboard);
+            SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
+            return -1;
+        }
+        fputc(temp, clipboard);
+    }
+
+    fclose(original_file);
+    fclose(clipboard);
+    SetFileAttributesA(CLIPBOARD_FILE_NAME, FILE_ATTRIBUTE_HIDDEN);
+    return 0;
+}
+
+int copystr_b(char fileaddress[], int pos_line, int pos_char, int size)
+{
+    FILE *original_file = fopen(fileaddress, "r");
+
+    if (pos_line == 0)
+    {
+        fclose(original_file);
+        return copystr_f(fileaddress, pos_line, pos_char - size, size);
+    }
+
+    int char_count[pos_line];
+    for (int i = 0; i < pos_line; i++)
+        char_count[i] = 0;
+
+    char line[2000];
+    int i = 0;
+    while (i < pos_line)
+    {
+        fgets(line, 2000, original_file);
+        char_count[i] += strlen(line);
+        if (line[strlen(line) - 1] == '\n')
+            i++;
+    }
+
+    long long sum = 0;
+    int j;
+    for (j = pos_line - 1; j >= 0; j--)
+    {
+        if (sum + char_count[j] >= size - pos_char)
+            break;
+        sum += char_count[j];
+    }
+
+    int pos_start = char_count[j] - (size - pos_char - sum);
+    fclose(original_file);
+
+    return copystr_f(fileaddress, j, pos_start, size);
+}
+
+int cutstr_action(char fileaddress[], int pos_line, int pos_char, int size, char direction)
+{
+    if (copystr_action(fileaddress, pos_line, pos_char, size, direction) == -1)
+        return -1;
+    else
+        return removestr_action(fileaddress, pos_line, pos_char, size, direction);
+}
+
+int pastestr_action(char fileaddress[], int pos_line, int pos_char)
+{
+    FILE *clipboard = fopen(CLIPBOARD_FILE_NAME, "r");
+    if (clipboard == NULL)
+    {
+        error_msg("clipboard is empty");
+        return -1;
+    }
+
+    char line[2000];
+    while (1)
+    {
+        if (fgets(line, 2000, clipboard) == NULL)
+            break;
+        if (insertstr_action(fileaddress, line, pos_line, pos_char) == -1)
+        {
+            fclose(clipboard);
+            return -1;
+        }
+        if (line[strlen(line) - 1] == '\n')
+        {
+            pos_line++;
+            pos_char = 0;
+        }
+        else
+        {
+            pos_char += strlen(line);
+        }
+    }
+
+    fclose(clipboard);
+    return 0;
 }
