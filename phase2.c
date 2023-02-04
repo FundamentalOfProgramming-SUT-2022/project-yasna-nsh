@@ -31,6 +31,9 @@
 #define INSERT_MODE 1
 #define VISUAL_MODE 2
 
+void move_to_pos();
+void show_prev_lines();
+void show_next_lines();
 void init_env();
 void init_windows();
 void refresh_view();
@@ -78,6 +81,7 @@ int cur_file_line, cur_file_char;
 int char_in_line[6000] = {0};
 int line_count;
 int saved;
+int first_line_index;
 
 int is_arman = 0;
 int first_time = 1;
@@ -109,6 +113,51 @@ int main()
         }
     }
     endwin();
+}
+
+void move_to_pos()
+{
+    // check logic
+    int maxx = COLS - LINE_WIN_WIDTH;
+    int maxy = LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT;
+
+    int x = cur_file_char % (maxx);
+    int y = 0;
+    for (int i = first_line_index; i < cur_file_line; i++)
+    {
+        y += (char_in_line[i] / maxx) + ((char_in_line[i] % maxx) != 0);
+    }
+    y += (cur_file_char / maxx);
+
+    if (y >= maxy)
+    {
+        show_next_lines();
+        y--;
+    }
+    if (cur_file_line < first_line_index)
+    {
+        show_prev_lines();
+    }
+
+    wmove(text_win, y, x);
+    wrefresh(text_win);
+}
+
+void show_prev_lines()
+{
+    if (first_line_index == 0)
+        return;
+    first_line_index--;
+    refresh_view(first_line_index);
+}
+
+void show_next_lines()
+{
+    // check condition
+    if (first_line_index + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT - 1 == line_count)
+        return;
+    first_line_index++;
+    refresh_view(first_line_index);
 }
 
 void getcommand(char com[])
@@ -289,6 +338,7 @@ void init_env()
     wprintw(file_win, "untitled");
     wprintw(file_win, "  +");
     wprintw(line_win, "1 ");
+    first_line_index = 0;
     wrefresh(mode_win);
     wrefresh(file_win);
     wrefresh(line_win);
@@ -318,7 +368,7 @@ void init_windows()
     set_mode_normal();
 }
 
-void refresh_view()
+void refresh_view(int from_line)
 {
     // print edited text again to prevent overwrite and update line and char count
     wclear(text_win);
@@ -327,11 +377,11 @@ void refresh_view()
     int i = 0;
     char_in_line[0] = 0;
     wclear(line_win);
-    wprintw(line_win, "1");
+    wprintw(line_win, "%d", from_line + 1);
     while (fgets(line, 1000, f) != NULL)
     {
         // stop printing text after reaching border
-        if (i < LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
+        if (i >= from_line && i < from_line + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
         {
             wprintw(text_win, line);
         }
@@ -340,13 +390,14 @@ void refresh_view()
         if (line[strlen(line) - 1] == '\n' || feof(f))
         {
             i++;
-            if (line[strlen(line) - 1] == '\n')
-                wprintw(line_win, "\n%d", i + 1);
             char_in_line[i] = 0;
+            if (i > from_line && i < from_line + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT && line[strlen(line) - 1] == '\n')
+                wprintw(line_win, "\n%d", i + 1);
         }
     }
     fclose(f);
     line_count = i;
+    first_line_index = from_line;
     wrefresh(line_win);
     wrefresh(text_win);
 }
@@ -374,20 +425,28 @@ void normal_input(char c)
     else if (c == 'u') /*undo*/
     {
         undo_action(fb_name);
-        refresh_view();
+        refresh_view(first_line_index);
         return;
     }
     else if (c == '=')
     {
         auto_indent_action(fb_name);
-        refresh_view();
+        refresh_view(first_line_index);
         return;
     }
-    else if (c == KEY_UP)
+    else if (c == 3)
     {
+        if (cur_file_line < first_line_index + 4)
+            show_prev_lines();
+        move_to_pos();
+        return;
     }
-    else if (c == KEY_DOWN)
+    else if (c == 2)
     {
+        if (cur_file_line > first_line_index + LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT - 5)
+            show_next_lines();
+        move_to_pos();
+        return;
     }
 
     // movement
@@ -397,52 +456,42 @@ void normal_input(char c)
     // k:up
     if (c == 'h')
     {
-        if (getcurx(text_win) - 1 < 0)
+        if (cur_file_char == 0)
             return;
-        wmove(text_win, getcury(text_win), getcurx(text_win) - 1);
-        cur_file_line = getcury(text_win);
-        cur_file_char = getcurx(text_win);
-        wrefresh(text_win);
+        cur_file_char--;
+        move_to_pos();
         return;
     }
     else if (c == 'l')
     {
-        if (getcurx(text_win) > char_in_line[cur_file_line] - 1 || (cur_file_line != line_count - 1 && getcurx(text_win) == char_in_line[cur_file_line] - 1))
+        if ((cur_file_char == char_in_line[cur_file_line] - 1 && cur_file_line != line_count - 1) || (cur_file_line == line_count - 1 && cur_file_char == char_in_line[cur_file_line]))
             return;
-        wmove(text_win, getcury(text_win), getcurx(text_win) + 1);
-        cur_file_line = getcury(text_win);
-        cur_file_char = getcurx(text_win);
-        wrefresh(text_win);
+        cur_file_char++;
+        move_to_pos();
         return;
     }
     else if (c == 'j')
     {
-        if (getcury(text_win) + 1 >= line_count)
+        if (cur_file_line == line_count - 1)
             return;
         cur_file_line++;
-        wmove(text_win, getcury(text_win) + 1, getcurx(text_win));
-        if (getcurx(text_win) > char_in_line[cur_file_line] - 1 || (cur_file_line != line_count - 1 && getcurx(text_win) == char_in_line[cur_file_line] - 1))
-        {
-            wmove(text_win, getcury(text_win), char_in_line[cur_file_line] - 1);
-            cur_file_line = getcury(text_win);
+        if ((cur_file_char >= char_in_line[cur_file_line] && cur_file_line != line_count - 1))
             cur_file_char = char_in_line[cur_file_line] - 1;
-        }
-        wrefresh(text_win);
+        else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
+            cur_file_char = char_in_line[cur_file_line];
+        move_to_pos();
         return;
     }
     else if (c == 'k')
     {
-        if (getcury(text_win) - 1 < 0)
+        if (cur_file_line == 0)
             return;
         cur_file_line--;
-        wmove(text_win, getcury(text_win) - 1, getcurx(text_win));
-        if (getcurx(text_win) > char_in_line[cur_file_line] - 1 || (cur_file_line != line_count - 1 && getcurx(text_win) == char_in_line[cur_file_line] - 1))
-        {
-            wmove(text_win, getcury(text_win), char_in_line[cur_file_line] - 1);
-            cur_file_line = getcury(text_win);
+        if ((cur_file_char >= char_in_line[cur_file_line] && cur_file_line != line_count - 1))
             cur_file_char = char_in_line[cur_file_line] - 1;
-        }
-        wrefresh(text_win);
+        else if (cur_file_line == line_count - 1 && cur_file_char > char_in_line[cur_file_line])
+            cur_file_char = char_in_line[cur_file_line];
+        move_to_pos();
         return;
     }
 }
@@ -492,7 +541,9 @@ void insert_input(char c)
         saved = 0;
         wrefresh(file_win);
     }
-    refresh_view();
+    refresh_view(first_line_index);
+
+    // check logic
     if (c == 8)
     {
         if (cur_file_line != 0 && cur_file_char == 0)
@@ -518,7 +569,7 @@ void insert_input(char c)
         }
     }
 
-    wmove(text_win, cur_file_line, cur_file_char);
+    move_to_pos();
     wrefresh(text_win);
 }
 
@@ -546,6 +597,8 @@ void command_input()
             wrefresh(command_win);
             char filepath[1000];
             create_file_input(filepath);
+            wclear(command_win);
+            wrefresh(command_win);
             createfile_action(filepath);
             strcpy(cur_file_path, filepath);
 
@@ -596,7 +649,7 @@ void command_input()
     else if (!strcmp(command, "undo"))
     {
         undo_action(fb_name);
-        refresh_view();
+        refresh_view(first_line_index);
     }
     // else if (!strcmp(command, "createfile"))
     // {
@@ -665,9 +718,6 @@ void command_input()
     wclear(command_win);
     wrefresh(command_win);
     wrefresh(text_win);
-    // wmove(text_win, 0, 0);
-    // wrefresh(text_win);
-    // cursor position?
     noecho();
 }
 
@@ -723,27 +773,15 @@ int open_action(char fileaddress[], int valid_input)
         char line[1000];
         int i = 0;
         char_in_line[0] = 0;
-        wclear(line_win);
-        wprintw(line_win, "1");
         while (fgets(line, 1000, f) != NULL)
         {
-            // stop printing text after reaching border
-            if (i < LINES - MODE_WIN_HEIGHT - COMMAND_WIN_HEIGHT)
-            {
-                wprintw(text_win, line);
-                fprintf(file_backup, line);
-            }
-            char_in_line[i] += strlen(line);
-            if (line[strlen(line) - 1] == '\n' || feof(f))
-            {
-                i++;
-                if (line[strlen(line) - 1] == '\n')
-                    wprintw(line_win, "\n%d", i + 1);
-                char_in_line[i] = 0;
-            }
+            fprintf(file_backup, line);
         }
-        line_count = i;
         fclose(f);
+        fclose(file_backup);
+
+        first_line_index = 0;
+        refresh_view(first_line_index);
     }
     else
     {
@@ -751,6 +789,9 @@ int open_action(char fileaddress[], int valid_input)
         f = fopen(fileaddress, "w");
         wprintw(line_win, "1");
         line_count = 0;
+        first_line_index = 0;
+        fclose(file_backup);
+        fclose(f);
     }
     wrefresh(text_win);
     wrefresh(line_win);
@@ -769,13 +810,10 @@ int open_action(char fileaddress[], int valid_input)
     }
     else
     {
-        wmove(text_win, line_count - 1, char_in_line[line_count - 1]);
         cur_file_line = line_count - 1;
-        cur_file_char = char_in_line[line_count - 1];
+        cur_file_char = char_in_line[line_count - 1] - 1;
+        move_to_pos();
     }
-
-    fclose(file_backup);
-    fclose(f);
 }
 
 void close_cur_file()
